@@ -1,0 +1,52 @@
+from athena_knowledge_mcp.core.models import TableSkill
+from athena_knowledge_mcp.repositories.s3_catalog_repository import S3CatalogRepository
+from athena_knowledge_mcp.repositories.s3_skill_repository import S3SkillRepository
+from athena_knowledge_mcp.services.s3_catalog_service import S3CatalogService
+from athena_knowledge_mcp.services.table_skill_service import TableSkillService
+
+
+class _MissingCatalogClient:
+    def get_object(self, **_: object) -> object:
+        error = Exception("missing")
+        error.response = {"Error": {"Code": "NoSuchKey"}}
+        raise error
+
+
+def test_catalog_search_and_skill_upsert(tmp_path) -> None:
+    catalog_service = S3CatalogService(
+        S3CatalogRepository(bucket="local", prefix="", local_root=tmp_path / "catalog")
+    )
+    table_skill_service = TableSkillService(
+        S3SkillRepository(bucket="local", prefix="", local_root=tmp_path / "skills"),
+        catalog_service,
+    )
+
+    entry = table_skill_service.create_or_update_table_skill(
+        TableSkill(
+            database_name="analytics",
+            table_name="orders",
+            description="Pedidos do ecommerce",
+            content_markdown="# Orders\n\nTabela de pedidos.",
+            summary="Pedidos e status do ecommerce",
+            business_context="Suporte a operacao comercial",
+            common_use_cases=["pedidos por status"],
+            tags=["orders", "sales"],
+        )
+    )
+
+    search_results = catalog_service.search("status ecommerce", limit=5)
+    skill = table_skill_service.get_table_skill("analytics", "orders")
+
+    assert entry.table_name == "orders"
+    assert len(search_results) == 1
+    assert skill["content_markdown"].startswith("# Orders")
+
+
+def test_catalog_load_entries_returns_empty_when_s3_index_is_missing() -> None:
+    repository = S3CatalogRepository(
+        bucket="catalog-bucket",
+        prefix="catalog-prefix",
+        s3_client=_MissingCatalogClient(),
+    )
+
+    assert repository.load_entries() == []
