@@ -9,7 +9,7 @@ from athena_knowledge_mcp.core.models import (
     AwsSecretMaterial,
     ServerConfiguration,
 )
-from athena_knowledge_mcp.utils.paths import normalize_local_path
+from athena_knowledge_mcp.utils.paths import resolve_runtime_path
 
 
 def validate_configuration(configuration: ServerConfiguration, secrets: AwsSecretMaterial) -> None:
@@ -48,7 +48,7 @@ def validate_s3_uri(value: str) -> None:
 
 
 def validate_local_path(value: str | Path) -> None:
-    path = normalize_local_path(value)
+    path = resolve_runtime_path(value)
     path.mkdir(parents=True, exist_ok=True)
     if not path.is_dir():
         raise InvalidConfigurationError(f"Caminho local invalido: {path}")

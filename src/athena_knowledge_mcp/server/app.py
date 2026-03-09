@@ -110,6 +110,7 @@ def build_app() -> FastMCP:
         onboarding_service,
         create_athena_service,
         create_materialization_service,
+        create_table_skill_service,
     )
 
     mcp = FastMCP("AWS Athena Knowledge MCP", json_response=True)
@@ -243,6 +244,10 @@ def build_app() -> FastMCP:
     def list_catalog_databases() -> list[str]:
         return catalog_handlers.list_catalog_databases()
 
+    @mcp.tool(name="list_catalog_tables")
+    def list_catalog_tables(database_name: str) -> list[dict[str, object]]:
+        return catalog_handlers.list_catalog_tables(database_name)
+
     @mcp.tool(name="execute_athena_query")
     def execute_athena_query(
         query: str,
@@ -259,6 +264,54 @@ def build_app() -> FastMCP:
             workgroup=workgroup,
             wait_for_completion=wait_for_completion,
             max_wait_seconds=max_wait_seconds,
+        )
+
+    @mcp.tool(name="list_athena_databases")
+    def list_athena_databases(
+        catalog: str | None = None,
+    ) -> list[dict[str, object]]:
+        return athena_handlers.list_athena_databases(
+            catalog=catalog,
+        )
+
+    @mcp.tool(name="list_athena_tables")
+    def list_athena_tables(
+        database_name: str,
+        catalog: str | None = None,
+        name_prefix: str | None = None,
+    ) -> list[dict[str, object]]:
+        return athena_handlers.list_athena_tables(
+            database_name=database_name,
+            catalog=catalog,
+            name_prefix=name_prefix,
+        )
+
+    @mcp.tool(name="get_athena_table_metadata")
+    def get_athena_table_metadata(
+        database_name: str,
+        table_name: str,
+        catalog: str | None = None,
+    ) -> dict[str, object]:
+        return athena_handlers.get_athena_table_metadata(
+            database_name=database_name,
+            table_name=table_name,
+            catalog=catalog,
+        )
+
+    @mcp.tool(name="sync_athena_database_to_catalog")
+    def sync_athena_database_to_catalog(
+        database_name: str,
+        catalog: str | None = None,
+        name_prefix: str | None = None,
+        max_tables: int | None = None,
+        overwrite_existing: bool = False,
+    ) -> dict[str, object]:
+        return athena_handlers.sync_athena_database_to_catalog(
+            database_name=database_name,
+            catalog=catalog,
+            name_prefix=name_prefix,
+            max_tables=max_tables,
+            overwrite_existing=overwrite_existing,
         )
 
     @mcp.tool(name="get_query_execution_status")

@@ -87,6 +87,46 @@ class QueryExecutionRecord(BaseModel):
     next_step: str | None = None
 
 
+class AthenaDatabaseSummary(BaseModel):
+    name: str
+    sources: list[str] = Field(default_factory=list)
+    cached_table_count: int = 0
+
+
+class AthenaTableSummary(BaseModel):
+    database_name: str
+    table_name: str
+    sources: list[str] = Field(default_factory=list)
+    summary: str | None = None
+    detail_file_s3_uri: str | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
+class AthenaColumnMetadata(BaseModel):
+    name: str
+    type: str
+    comment: str | None = None
+
+
+class AthenaTableMetadata(BaseModel):
+    database_name: str
+    table_name: str
+    catalog: str
+    sources: list[str] = Field(default_factory=list)
+    table_type: str | None = None
+    owner: str | None = None
+    create_time: datetime | None = None
+    last_access_time: datetime | None = None
+    columns: list[AthenaColumnMetadata] = Field(default_factory=list)
+    partition_keys: list[AthenaColumnMetadata] = Field(default_factory=list)
+    parameters: dict[str, str | None] = Field(default_factory=dict)
+    summary: str | None = None
+    business_context: str = ""
+    common_use_cases: list[str] = Field(default_factory=list)
+    detail_file_s3_uri: str | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
 class CatalogEntry(BaseModel):
     database_name: str
     table_name: str
