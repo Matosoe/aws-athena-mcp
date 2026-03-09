@@ -115,7 +115,10 @@ def build_app() -> FastMCP:
 
     mcp = FastMCP("AWS Athena Knowledge MCP", json_response=True)
 
-    @mcp.tool(name="initialize_server_configuration")
+    @mcp.tool(
+        name="initialize_server_configuration",
+        description=("Persist the initial AWS and Athena configuration used by the " "server."),
+    )
     def initialize_server_configuration(
         authentication_type: str,
         aws_region: str,
@@ -135,6 +138,10 @@ def build_app() -> FastMCP:
         aws_session_token: str | None = None,
         skip_aws_validation: bool = False,
     ) -> dict[str, object]:
+        """Persist the initial AWS and Athena configuration.
+
+        The stored settings are used by the MCP server on later calls.
+        """
         return onboarding_handlers.initialize_server_configuration(
             authentication_type=authentication_type,
             aws_region=aws_region,
@@ -155,11 +162,23 @@ def build_app() -> FastMCP:
             skip_aws_validation=skip_aws_validation,
         )
 
-    @mcp.tool(name="get_server_configuration_status")
+    @mcp.tool(
+        name="get_server_configuration_status",
+        description=(
+            "Return whether the server is configured and summarize the " "active settings."
+        ),
+    )
     def get_server_configuration_status() -> dict[str, object]:
+        """Return whether the server is configured.
+
+        Includes a summary of the active local settings.
+        """
         return onboarding_handlers.get_server_configuration_status()
 
-    @mcp.tool(name="update_server_configuration")
+    @mcp.tool(
+        name="update_server_configuration",
+        description=("Update one or more persisted server configuration fields."),
+    )
     def update_server_configuration(
         authentication_type: str | None = None,
         aws_region: str | None = None,
@@ -179,6 +198,10 @@ def build_app() -> FastMCP:
         aws_session_token: str | None = None,
         skip_aws_validation: bool = False,
     ) -> dict[str, object]:
+        """Update persisted server configuration fields.
+
+        This avoids recreating the full setup from scratch.
+        """
         updates = {
             key: value
             for key, value in {
@@ -206,15 +229,32 @@ def build_app() -> FastMCP:
             **updates,
         )
 
-    @mcp.tool(name="search_table_catalog")
-    def search_table_catalog(query: str, limit: int = 5) -> list[dict[str, object]]:
+    @mcp.tool(
+        name="search_table_catalog",
+        description=("Search the indexed table catalog by text and return matching " "entries."),
+    )
+    def search_table_catalog(
+        query: str,
+        limit: int = 5,
+    ) -> list[dict[str, object]]:
+        """Search the indexed table catalog by text.
+
+        Returns the most relevant table entries.
+        """
         return catalog_handlers.search_table_catalog(query, limit)
 
-    @mcp.tool(name="get_table_skill")
+    @mcp.tool(
+        name="get_table_skill",
+        description=("Load the detailed skill document stored for a specific table."),
+    )
     def get_table_skill(database_name: str, table_name: str) -> dict[str, str]:
+        """Load the detailed skill document for a cataloged table."""
         return file_handlers.get_table_skill(database_name, table_name)
 
-    @mcp.tool(name="create_or_update_table_skill")
+    @mcp.tool(
+        name="create_or_update_table_skill",
+        description=("Create or update the detailed skill content and metadata for " "a table."),
+    )
     def create_or_update_table_skill(
         database_name: str,
         table_name: str,
@@ -225,6 +265,10 @@ def build_app() -> FastMCP:
         common_use_cases: list[str] | None = None,
         tags: list[str] | None = None,
     ) -> dict[str, object]:
+        """Create or replace a table skill.
+
+        Stores the detailed content and summary metadata for the table.
+        """
         return file_handlers.create_or_update_table_skill(
             database_name=database_name,
             table_name=table_name,
@@ -236,19 +280,34 @@ def build_app() -> FastMCP:
             tags=tags,
         )
 
-    @mcp.tool(name="refresh_catalog_index")
+    @mcp.tool(
+        name="refresh_catalog_index",
+        description=("Reload the local catalog index from persisted catalog storage."),
+    )
     def refresh_catalog_index() -> dict[str, int]:
+        """Reload the local catalog index from persisted storage."""
         return catalog_handlers.refresh_catalog_index()
 
-    @mcp.tool(name="list_catalog_databases")
+    @mcp.tool(
+        name="list_catalog_databases",
+        description=("List database names currently available in the indexed catalog."),
+    )
     def list_catalog_databases() -> list[str]:
+        """List database names currently available in the indexed catalog."""
         return catalog_handlers.list_catalog_databases()
 
-    @mcp.tool(name="list_catalog_tables")
+    @mcp.tool(
+        name="list_catalog_tables",
+        description="List indexed catalog tables for a specific database.",
+    )
     def list_catalog_tables(database_name: str) -> list[dict[str, object]]:
+        """List indexed catalog tables for a specific database."""
         return catalog_handlers.list_catalog_tables(database_name)
 
-    @mcp.tool(name="execute_athena_query")
+    @mcp.tool(
+        name="execute_athena_query",
+        description=("Execute SQL in Athena and optionally wait for completion."),
+    )
     def execute_athena_query(
         query: str,
         database: str | None = None,
@@ -257,6 +316,10 @@ def build_app() -> FastMCP:
         wait_for_completion: bool = True,
         max_wait_seconds: int = 300,
     ) -> dict[str, object]:
+        """Execute SQL in Athena.
+
+        Optionally waits for completion before returning status and metadata.
+        """
         return athena_handlers.execute_athena_query(
             query=query,
             database=database,
@@ -266,39 +329,60 @@ def build_app() -> FastMCP:
             max_wait_seconds=max_wait_seconds,
         )
 
-    @mcp.tool(name="list_athena_databases")
+    @mcp.tool(
+        name="list_athena_databases",
+        description=("List databases directly from the configured Athena catalog."),
+    )
     def list_athena_databases(
         catalog: str | None = None,
     ) -> list[dict[str, object]]:
+        """List databases directly from the configured Athena catalog."""
         return athena_handlers.list_athena_databases(
             catalog=catalog,
         )
 
-    @mcp.tool(name="list_athena_tables")
+    @mcp.tool(
+        name="list_athena_tables",
+        description="List tables directly from Athena for a database.",
+    )
     def list_athena_tables(
         database_name: str,
         catalog: str | None = None,
         name_prefix: str | None = None,
     ) -> list[dict[str, object]]:
+        """List tables directly from Athena for a database.
+
+        Optionally filters the list by name prefix.
+        """
         return athena_handlers.list_athena_tables(
             database_name=database_name,
             catalog=catalog,
             name_prefix=name_prefix,
         )
 
-    @mcp.tool(name="get_athena_table_metadata")
+    @mcp.tool(
+        name="get_athena_table_metadata",
+        description="Fetch detailed metadata for one Athena table.",
+    )
     def get_athena_table_metadata(
         database_name: str,
         table_name: str,
         catalog: str | None = None,
     ) -> dict[str, object]:
+        """Fetch detailed metadata for one Athena table.
+
+        Reads directly from the Athena catalog.
+        """
         return athena_handlers.get_athena_table_metadata(
             database_name=database_name,
             table_name=table_name,
             catalog=catalog,
         )
 
-    @mcp.tool(name="sync_athena_database_to_catalog")
+    @mcp.tool(
+        name="sync_athena_database_to_catalog",
+        description=("Import Athena tables into the indexed catalog and generate " "basic skills."),
+    )
     def sync_athena_database_to_catalog(
         database_name: str,
         catalog: str | None = None,
@@ -306,6 +390,10 @@ def build_app() -> FastMCP:
         max_tables: int | None = None,
         overwrite_existing: bool = False,
     ) -> dict[str, object]:
+        """Import Athena tables into the indexed catalog.
+
+        Also generates basic skills for the imported tables.
+        """
         return athena_handlers.sync_athena_database_to_catalog(
             database_name=database_name,
             catalog=catalog,
@@ -314,20 +402,48 @@ def build_app() -> FastMCP:
             overwrite_existing=overwrite_existing,
         )
 
-    @mcp.tool(name="get_query_execution_status")
-    def get_query_execution_status(query_execution_id: str) -> dict[str, object]:
+    @mcp.tool(
+        name="get_query_execution_status",
+        description=("Return the latest status and metadata for a submitted Athena " "query."),
+    )
+    def get_query_execution_status(
+        query_execution_id: str,
+    ) -> dict[str, object]:
+        """Return the latest status for a submitted Athena query.
+
+        Includes execution metadata when available.
+        """
         return athena_handlers.get_query_execution_status(query_execution_id)
 
-    @mcp.tool(name="fetch_query_result_preview")
-    def fetch_query_result_preview(query_execution_id: str) -> dict[str, object]:
+    @mcp.tool(
+        name="fetch_query_result_preview",
+        description=("Fetch an inline preview of the result set for a completed " "Athena query."),
+    )
+    def fetch_query_result_preview(
+        query_execution_id: str,
+    ) -> dict[str, object]:
+        """Fetch an inline preview for a completed Athena query."""
         return athena_handlers.fetch_query_result_preview(query_execution_id)
 
-    @mcp.tool(name="materialize_large_result_locally")
-    def materialize_large_result_locally(query_execution_id: str) -> dict[str, object]:
+    @mcp.tool(
+        name="materialize_large_result_locally",
+        description=("Download a large Athena query result file to local storage."),
+    )
+    def materialize_large_result_locally(
+        query_execution_id: str,
+    ) -> dict[str, object]:
+        """Download a large Athena result file locally.
+
+        The file is stored in the configured local results folder.
+        """
         return athena_handlers.materialize_large_result_locally(query_execution_id)
 
-    @mcp.tool(name="list_local_result_files")
+    @mcp.tool(
+        name="list_local_result_files",
+        description="List Athena result files that were materialized locally.",
+    )
     def list_local_result_files() -> list[str]:
+        """List Athena result files materialized to local storage."""
         return athena_handlers.list_local_result_files()
 
     return mcp
