@@ -9,12 +9,18 @@ from uuid import uuid4
 
 from athena_knowledge_mcp.core.exceptions import QueryExecutionError
 from athena_knowledge_mcp.core.models import (
+    AthenaColumnMetadata,
+    AthenaDatabaseSummary,
     AthenaQueryRequest,
+    AthenaTableMetadata,
+    AthenaTableSummary,
     QueryExecutionRecord,
     QueryResultPreview,
     ServerConfiguration,
+    TableSkill,
 )
 from athena_knowledge_mcp.repositories.query_history_repository import QueryHistoryRepository
+from athena_knowledge_mcp.services.table_skill_service import TableSkillService
 from athena_knowledge_mcp.utils.formatters import format_large_result_message
 
 
@@ -23,6 +29,139 @@ class AthenaService:
     history_repository: QueryHistoryRepository
     athena_client: Any | None = None
     s3_client: Any | None = None
+
+    def list_databases(
+        self,
+        configuration: ServerConfiguration,
+        catalog: str | None = None,
+    ) -> list[AthenaDatabaseSummary]:
+        if self.athena_client is None:
+            raise QueryExecutionError(
+                "Cliente Athena nao configurado para consultar databases remotamente"
+            )
+
+        remote_database_names = self._list_all_databases(
+            catalog or configuration.athena_catalog,
+            configuration.athena_workgroup,
+        )
+        return [
+            AthenaDatabaseSummary(
+                name=database_name,
+                sources=["athena"],
+            )
+            for database_name in remote_database_names
+        ]
+
+    def list_tables(
+        self,
+        configuration: ServerConfiguration,
+        database_name: str,
+        catalog: str | None = None,
+        name_prefix: str | None = None,
+    ) -> list[AthenaTableSummary]:
+        if self.athena_client is None:
+            raise QueryExecutionError(
+                "Cliente Athena nao configurado para consultar tabelas remotamente"
+            )
+
+        remote_tables = self._list_all_table_metadata(
+            catalog or configuration.athena_catalog,
+            database_name,
+            configuration.athena_workgroup,
+            expression=name_prefix,
+        )
+        return [
+            AthenaTableSummary(
+                database_name=database_name,
+                table_name=table["Name"],
+                sources=["athena"],
+            )
+            for table in remote_tables
+        ]
+
+    def get_table_metadata(
+        self,
+        configuration: ServerConfiguration,
+        database_name: str,
+        table_name: str,
+        catalog: str | None = None,
+    ) -> AthenaTableMetadata:
+        resolved_catalog = catalog or configuration.athena_catalog
+
+        if self.athena_client is None:
+            raise QueryExecutionError(
+                "Cliente Athena nao configurado para consultar propriedades da tabela"
+            )
+
+        response: dict[str, Any] = self.athena_client.get_table_metadata(
+            CatalogName=resolved_catalog,
+            DatabaseName=database_name,
+            TableName=table_name,
+            WorkGroup=configuration.athena_workgroup,
+        )
+        metadata = response["TableMetadata"]
+        return AthenaTableMetadata(
+            database_name=database_name,
+            table_name=table_name,
+            catalog=resolved_catalog,
+            sources=["athena"],
+            table_type=metadata.get("TableType"),
+            owner=metadata.get("Owner"),
+            create_time=metadata.get("CreateTime"),
+            last_access_time=metadata.get("LastAccessTime"),
+            columns=[self._build_column(column) for column in metadata.get("Columns", [])],
+            partition_keys=[
+                self._build_column(column) for column in metadata.get("PartitionKeys", [])
+            ],
+            parameters=metadata.get("Parameters", {}),
+        )
+
+    def sync_database_to_catalog(
+        self,
+        configuration: ServerConfiguration,
+        database_name: str,
+        table_skill_service: TableSkillService,
+        catalog: str | None = None,
+        name_prefix: str | None = None,
+        max_tables: int | None = None,
+        overwrite_existing: bool = False,
+    ) -> dict[str, object]:
+        tables = self.list_tables(
+            configuration,
+            database_name=database_name,
+            catalog=catalog,
+            name_prefix=name_prefix,
+        )
+        if max_tables is not None:
+            tables = tables[:max_tables]
+
+        synced_tables: list[str] = []
+        skipped_tables: list[str] = []
+        for table in tables:
+            if not overwrite_existing and table_skill_service.catalog_service.get_entry(
+                database_name,
+                table.table_name,
+            ) is not None:
+                skipped_tables.append(table.table_name)
+                continue
+
+            metadata = self.get_table_metadata(
+                configuration,
+                database_name=database_name,
+                table_name=table.table_name,
+                catalog=catalog,
+            )
+            generated_skill = self._build_generated_table_skill(metadata)
+            table_skill_service.create_or_update_table_skill(generated_skill)
+            synced_tables.append(table.table_name)
+
+        return {
+            "database_name": database_name,
+            "synced_tables": synced_tables,
+            "skipped_tables": skipped_tables,
+            "synced_count": len(synced_tables),
+            "skipped_count": len(skipped_tables),
+        }
 
     def execute_query(
         self,
@@ -228,3 +367,98 @@ class AthenaService:
         else:
             writer.writerow([record.query_execution_id, record.status])
         return buffer.getvalue().encode("utf-8")
+
+    def _list_all_databases(self, catalog: str, workgroup: str) -> list[str]:
+        assert self.athena_client is not None
+        databases: list[str] = []
+        next_token: str | None = None
+        while True:
+            request: dict[str, Any] = {
+                "CatalogName": catalog,
+                "MaxResults": 50,
+                "WorkGroup": workgroup,
+            }
+            if next_token is not None:
+                request["NextToken"] = next_token
+            response: dict[str, Any] = self.athena_client.list_databases(**request)
+            databases.extend(item["Name"] for item in response.get("DatabaseList", []))
+            next_token = response.get("NextToken")
+            if next_token is None:
+                break
+        return sorted(databases)
+
+    def _list_all_table_metadata(
+        self,
+        catalog: str,
+        database_name: str,
+        workgroup: str,
+        expression: str | None = None,
+    ) -> list[dict[str, Any]]:
+        assert self.athena_client is not None
+        tables: list[dict[str, Any]] = []
+        next_token: str | None = None
+        while True:
+            request: dict[str, Any] = {
+                "CatalogName": catalog,
+                "DatabaseName": database_name,
+                "MaxResults": 50,
+                "WorkGroup": workgroup,
+            }
+            if expression:
+                request["Expression"] = f"{expression}*"
+            if next_token is not None:
+                request["NextToken"] = next_token
+            response: dict[str, Any] = self.athena_client.list_table_metadata(**request)
+            tables.extend(response.get("TableMetadataList", []))
+            next_token = response.get("NextToken")
+            if next_token is None:
+                break
+        tables.sort(key=lambda item: item["Name"])
+        return tables
+
+    def _build_column(self, column: dict[str, Any]) -> AthenaColumnMetadata:
+        return AthenaColumnMetadata(
+            name=column.get("Name", ""),
+            type=column.get("Type", "unknown"),
+            comment=column.get("Comment"),
+        )
+
+    def _build_generated_table_skill(self, metadata: AthenaTableMetadata) -> TableSkill:
+        column_lines = [
+            f"- {column.name}: {column.type}" + (f" ({column.comment})" if column.comment else "")
+            for column in metadata.columns
+        ]
+        partition_lines = [
+            f"- {column.name}: {column.type}" + (f" ({column.comment})" if column.comment else "")
+            for column in metadata.partition_keys
+        ]
+        parameter_lines = [
+            f"- {key}: {value if value is not None else '(null)'}"
+            for key, value in sorted(metadata.parameters.items())
+        ]
+        sections = [
+            f"# {metadata.database_name}.{metadata.table_name}",
+            "",
+            "Skill gerada automaticamente a partir do metadata do AWS Athena.",
+            "",
+            "## Colunas",
+            *(column_lines or ["- Nenhuma coluna retornada pelo Athena."]),
+        ]
+        if partition_lines:
+            sections.extend(["", "## Particoes", *partition_lines])
+        if parameter_lines:
+            sections.extend(["", "## Parametros", *parameter_lines])
+        summary = (
+            f"Tabela Athena com {len(metadata.columns)} colunas"
+            + (f" e {len(metadata.partition_keys)} particoes" if metadata.partition_keys else "")
+            + "."
+        )
+        tags = [value for value in [metadata.table_type, metadata.parameters.get("classification")] if value]
+        return TableSkill(
+            database_name=metadata.database_name,
+            table_name=metadata.table_name,
+            description="Skill gerada automaticamente a partir do Athena.",
+            content_markdown="\n".join(sections),
+            summary=summary,
+            tags=tags,
+        )

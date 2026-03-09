@@ -6,6 +6,9 @@ Servidor MCP local em Python para executar consultas no AWS Athena e manter um c
 
 - onboarding inicial com persistência local de configuração;
 - execução genérica de SQL no Athena;
+- descoberta de databases, tabelas e propriedades direto no Athena por tools explícitas;
+- listagens indexadas de databases e tabelas a partir do catálogo S3 para baixa latência;
+- descoberta direta no Athena somente por tools explícitas, sem merge automático com o índice;
 - retorno inline para resultados pequenos e sinalização para resultados grandes;
 - busca textual simples no catálogo de tabelas armazenado no S3;
 - leitura e atualização de skill detalhado por tabela.
@@ -23,6 +26,43 @@ python -m venv .venv
 . .venv/Scripts/activate
 pip install -e .[dev]
 ```
+
+## Distribuição simplificada
+
+Para cliente final, o caminho mais simples agora é distribuir o executável Windows.
+
+### Opcao: executavel Windows
+
+Publicador do servidor:
+
+```powershell
+./scripts/build_windows_exe.ps1
+```
+
+O build gera o binario em `dist/aws-athena-mcp.exe`.
+
+Cliente final via MCP por `stdio`:
+
+```json
+{
+	"servers": {
+		"aws-athena-mcp": {
+			"type": "stdio",
+			"command": "C:/athena-mcp/aws-athena-mcp.exe",
+			"args": []
+		}
+	},
+	"inputs": []
+}
+```
+
+Observacoes:
+
+- o executavel nao exige Python instalado na maquina do cliente;
+- por padrao, o `.exe` salva `state/` e `downloads/` ao lado do binario, o que evita depender do diretorio atual do processo;
+- se quiser mudar esse local, defina a variavel de ambiente `ATHENA_MCP_HOME` antes de iniciar o processo.
+
+Exemplo pronto de configuracao MCP fica em `.vscode/mcp.windows-exe.json`.
 
 ## Executar localmente
 
@@ -177,11 +217,26 @@ PY
 - `create_or_update_table_skill`
 - `refresh_catalog_index`
 - `list_catalog_databases`
+- `list_catalog_tables`
+- `list_athena_databases`
+- `list_athena_tables`
+- `get_athena_table_metadata`
+- `sync_athena_database_to_catalog`
 - `execute_athena_query`
 - `get_query_execution_status`
 - `fetch_query_result_preview`
 - `materialize_large_result_locally`
 - `list_local_result_files`
+
+## Descoberta de catálogo
+
+As listagens padrão do servidor usam apenas o índice resumido mantido no S3. Isso mantém baixa latência e evita misturar dados ainda não catalogados com o inventário curado.
+
+Quando for necessário consultar o catálogo real do Athena, use as tools explícitas `list_athena_databases`, `list_athena_tables` e `get_athena_table_metadata`. Essas tools consultam apenas o Athena e não fazem merge automático com o índice.
+
+Quando o usuário quiser enriquecer o índice com tabelas descobertas no Athena, use `sync_athena_database_to_catalog` para gerar skills básicas e atualizar o catálogo S3 de forma controlada.
+
+Para ações genéricas no Athena, continue usando `execute_athena_query`. Isso cobre consultas de metadados e qualquer SQL suportada pelo Athena no workgroup configurado.
 
 ## Qualidade
 

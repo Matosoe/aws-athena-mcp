@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from athena_knowledge_mcp.core.models import RuntimePaths, ServerConfiguration
 from athena_knowledge_mcp.core.secrets_store import SecretsStore
 from athena_knowledge_mcp.core.settings_store import SettingsStore
+from athena_knowledge_mcp.utils.paths import resolve_runtime_home
 
 
 @dataclass(slots=True)
@@ -15,7 +16,13 @@ class AppConfig:
 
     @classmethod
     def default(cls) -> AppConfig:
-        runtime_paths = RuntimePaths()
+        runtime_home = resolve_runtime_home()
+        runtime_paths = RuntimePaths(
+            state_dir=runtime_home / "state",
+            downloads_dir=runtime_home / "downloads",
+            settings_file=runtime_home / "state" / "runtime_settings.json",
+            secrets_file=runtime_home / "state" / "secrets.json",
+        )
         return cls(
             runtime_paths=runtime_paths,
             settings_store=SettingsStore(runtime_paths.settings_file),

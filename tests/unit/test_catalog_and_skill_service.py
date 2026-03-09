@@ -50,3 +50,35 @@ def test_catalog_load_entries_returns_empty_when_s3_index_is_missing() -> None:
     )
 
     assert repository.load_entries() == []
+
+
+def test_catalog_list_tables_filters_by_database(tmp_path) -> None:
+    catalog_service = S3CatalogService(
+        S3CatalogRepository(bucket="local", prefix="", local_root=tmp_path / "catalog")
+    )
+    table_skill_service = TableSkillService(
+        S3SkillRepository(bucket="local", prefix="", local_root=tmp_path / "skills"),
+        catalog_service,
+    )
+    table_skill_service.create_or_update_table_skill(
+        TableSkill(
+            database_name="analytics",
+            table_name="orders",
+            description="Pedidos",
+            content_markdown="# Orders",
+            summary="Pedidos",
+        )
+    )
+    table_skill_service.create_or_update_table_skill(
+        TableSkill(
+            database_name="finance",
+            table_name="invoices",
+            description="Faturas",
+            content_markdown="# Invoices",
+            summary="Faturas",
+        )
+    )
+
+    tables = catalog_service.list_tables("analytics")
+
+    assert [table.table_name for table in tables] == ["orders"]

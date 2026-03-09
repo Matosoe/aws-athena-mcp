@@ -23,6 +23,11 @@ class CatalogHandlers:
         service = self.catalog_service_factory()
         return service.list_databases()
 
+    def list_catalog_tables(self, database_name: str) -> list[dict[str, object]]:
+        require_configuration(self.onboarding_service)
+        service = self.catalog_service_factory()
+        return [entry.model_dump(mode="json") for entry in service.list_tables(database_name)]
+
     def refresh_catalog_index(self) -> dict[str, int]:
         require_configuration(self.onboarding_service)
         service = self.catalog_service_factory()

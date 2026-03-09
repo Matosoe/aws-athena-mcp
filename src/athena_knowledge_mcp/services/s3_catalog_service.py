@@ -30,6 +30,31 @@ class S3CatalogService:
         entries = self.repository.load_entries()
         return sorted({entry.database_name for entry in entries})
 
+    def list_database_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for entry in self.repository.load_entries():
+            counts[entry.database_name] = counts.get(entry.database_name, 0) + 1
+        return dict(sorted(counts.items()))
+
+    def list_tables(self, database_name: str) -> list[CatalogEntry]:
+        entries = self.repository.load_entries()
+        filtered_entries = [
+            entry for entry in entries if entry.database_name.lower() == database_name.lower()
+        ]
+        filtered_entries.sort(key=lambda item: item.table_name)
+        return filtered_entries
+
+    def get_entry(self, database_name: str, table_name: str) -> CatalogEntry | None:
+        normalized_database = database_name.lower()
+        normalized_table = table_name.lower()
+        for entry in self.repository.load_entries():
+            if (
+                entry.database_name.lower() == normalized_database
+                and entry.table_name.lower() == normalized_table
+            ):
+                return entry
+        return None
+
     def upsert_entry(self, entry: CatalogEntry) -> CatalogEntry:
         entries = self.repository.load_entries()
         updated_entries = [
