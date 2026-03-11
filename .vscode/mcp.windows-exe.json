@@ -2,7 +2,7 @@
 	"servers": {
 		"aws-athena-mcp": {
 			"type": "stdio",
-			"command": "C:/athena-mcp/aws-athena-mcp.exe",
+			"command": "C:/athena-mcp/aws-athena-mcp-latest.exe",
 			"args": []
 		}
 	},

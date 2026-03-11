@@ -2,7 +2,7 @@
 	"servers": {
 		"aws-mcp-athena-v2": {
 			"type": "stdio",
-			"command": "C:/projetos/aws-athena-mcp/dist/aws-athena-mcp.exe",
+			"command": "C:/projetos/aws-athena-mcp/dist/aws-athena-mcp-latest.exe",
 			"args": []
 		}
 	},

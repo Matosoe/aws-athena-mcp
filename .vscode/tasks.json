@@ -1,0 +1,35 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build MCP EXE",
+			"type": "process",
+			"command": ".venv/Scripts/python.exe",
+			"args": [
+				"scripts/build_windows_exe.py",
+				".venv/Scripts/python.exe"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Git Status Short (CMD)",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"git status --short"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Git Branch Current (CMD)",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"git branch --show-current"
+			],
+			"isBackground": false
+		}
+	]
+}
