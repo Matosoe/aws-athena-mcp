@@ -19,7 +19,10 @@ class _FakeAthenaClient:
     def __init__(self) -> None:
         self.list_database_calls: list[dict[str, object]] = []
         self.list_table_calls: list[dict[str, object]] = []
-        self.get_table_calls: list[dict[str, object]] = []
+        self.start_query_calls: list[dict[str, object]] = []
+        self.get_query_execution_calls: list[dict[str, object]] = []
+        self.get_query_results_calls: list[dict[str, object]] = []
+        self._ddl_by_query_id: dict[str, str] = {}
 
     def list_databases(self, **kwargs: object) -> dict[str, object]:
         self.list_database_calls.append(kwargs)
@@ -42,22 +45,61 @@ class _FakeAthenaClient:
             }
         return {"TableMetadataList": []}
 
-    def get_table_metadata(self, **kwargs: object) -> dict[str, object]:
-        self.get_table_calls.append(kwargs)
+    def start_query_execution(self, **kwargs: object) -> dict[str, object]:
+        self.start_query_calls.append(kwargs)
+        query_execution_id = f"query-{len(self.start_query_calls)}"
+        query = str(kwargs["QueryString"])
+        self._ddl_by_query_id[query_execution_id] = self._resolve_show_create_table(query)
+        return {"QueryExecutionId": query_execution_id}
+
+    def get_query_execution(self, **kwargs: object) -> dict[str, object]:
+        self.get_query_execution_calls.append(kwargs)
         return {
-            "TableMetadata": {
-                "Name": "orders",
-                "TableType": "EXTERNAL_TABLE",
-                "CreateTime": datetime(2025, 1, 10, tzinfo=UTC),
-                "LastAccessTime": datetime(2025, 1, 11, tzinfo=UTC),
-                "Columns": [
-                    {"Name": "order_id", "Type": "bigint"},
-                    {"Name": "status", "Type": "string", "Comment": "status atual"},
-                ],
-                "PartitionKeys": [{"Name": "dt", "Type": "string"}],
-                "Parameters": {"classification": "parquet"},
+            "QueryExecution": {
+                "Status": {"State": "SUCCEEDED"},
+                "ResultConfiguration": {
+                    "OutputLocation": "s3://results-bucket/athena/results/query-1.csv"
+                },
+                "Statistics": {"EngineExecutionTimeInMillis": 12},
             }
         }
+
+    def get_query_results(self, **kwargs: object) -> dict[str, object]:
+        self.get_query_results_calls.append(kwargs)
+        query_execution_id = str(kwargs["QueryExecutionId"])
+        ddl = self._ddl_by_query_id[query_execution_id]
+        return {
+            "ResultSet": {
+                "Rows": [
+                    {"Data": [{"VarCharValue": "createtab_stmt"}]},
+                    {"Data": [{"VarCharValue": ddl}]},
+                ]
+            }
+        }
+
+    def _resolve_show_create_table(self, query: str) -> str:
+        normalized_query = " ".join(query.strip().split()).lower()
+        if normalized_query == "show create table orders":
+            return """CREATE EXTERNAL TABLE `orders`(
+  `order_id` bigint,
+  `status` string COMMENT 'status atual',
+  `items` array<struct<sku:string,qty:int>>
+)
+PARTITIONED BY (
+  `dt` string
+)
+STORED AS PARQUET
+LOCATION 's3://bucket/orders/'
+TBLPROPERTIES (
+  'classification'='parquet'
+)"""
+        if normalized_query == "show create table pageviews":
+            return """CREATE EXTERNAL TABLE `pageviews`(
+  `session_id` string,
+  `path` string
+)
+STORED AS PARQUET"""
+        raise AssertionError(f"Query inesperada no fake Athena client: {query}")
 
 
 def build_configuration(tmp_path: Path) -> ServerConfiguration:
@@ -159,7 +201,7 @@ def test_list_tables_prefers_cache_and_merges_remote(tmp_path: Path) -> None:
     assert athena_client.list_table_calls[0]["WorkGroup"] == "primary"
 
 
-def test_get_table_metadata_enriches_remote_with_cache(tmp_path: Path) -> None:
+def test_get_table_metadata_reads_columns_from_show_create_table(tmp_path: Path) -> None:
     athena_client = _FakeAthenaClient()
     service = AthenaService(
         QueryHistoryRepository(tmp_path / "query_history.jsonl"),
@@ -174,10 +216,17 @@ def test_get_table_metadata_enriches_remote_with_cache(tmp_path: Path) -> None:
 
     assert metadata.sources == ["athena"]
     assert metadata.columns[0].name == "order_id"
+    assert metadata.columns[1].comment == "status atual"
+    assert metadata.columns[2].type == "array<struct<sku:string,qty:int>>"
     assert metadata.partition_keys[0].name == "dt"
     assert metadata.parameters["classification"] == "parquet"
     assert metadata.summary is None
-    assert athena_client.get_table_calls[0]["WorkGroup"] == "primary"
+    assert athena_client.start_query_calls[0]["QueryString"] == "SHOW CREATE TABLE orders"
+    assert athena_client.start_query_calls[0]["QueryExecutionContext"] == {
+        "Database": "analytics",
+        "Catalog": "AwsDataCatalog",
+    }
+    assert athena_client.start_query_calls[0]["WorkGroup"] == "primary"
 
 
 def test_sync_database_to_catalog_creates_generated_skills(tmp_path: Path) -> None:
@@ -206,23 +255,21 @@ def test_sync_database_to_catalog_creates_generated_skills(tmp_path: Path) -> No
     assert (tmp_path / "skills" / "analytics" / "orders.md").exists()
 
 
-def test_sync_database_to_catalog_accepts_nullable_table_parameters(tmp_path: Path) -> None:
+def test_sync_database_to_catalog_handles_tables_without_tblproperties(tmp_path: Path) -> None:
     class _NullableParameterAthenaClient(_FakeAthenaClient):
-        def get_table_metadata(self, **kwargs: object) -> dict[str, object]:
-            self.get_table_calls.append(kwargs)
-            return {
-                "TableMetadata": {
-                    "Name": kwargs["TableName"],
-                    "TableType": "EXTERNAL_TABLE",
-                    "Columns": [{"Name": "id", "Type": "bigint"}],
-                    "Parameters": {
-                        "classification": "csv",
-                        "inputformat": None,
-                        "outputformat": None,
-                        "serde.serialization.lib": None,
-                    },
-                }
-            }
+        def _resolve_show_create_table(self, query: str) -> str:
+            normalized_query = " ".join(query.strip().split()).lower()
+            if normalized_query == "show create table orders":
+                return """CREATE EXTERNAL TABLE `orders`(
+  `id` bigint
+)
+STORED AS TEXTFILE"""
+            if normalized_query == "show create table pageviews":
+                return """CREATE EXTERNAL TABLE `pageviews`(
+  `id` bigint
+)
+STORED AS TEXTFILE"""
+            raise AssertionError(f"Query inesperada no fake Athena client: {query}")
 
     athena_client = _NullableParameterAthenaClient()
     catalog_service = S3CatalogService(
@@ -245,5 +292,5 @@ def test_sync_database_to_catalog_accepts_nullable_table_parameters(tmp_path: Pa
 
     skill_content = (tmp_path / "skills" / "analytics" / "orders.md").read_text(encoding="utf-8")
     assert result["synced_count"] == 2
-    assert "- inputformat: (null)" in skill_content
-    assert "- outputformat: (null)" in skill_content
+    assert "## Colunas" in skill_content
+    assert "- id: bigint" in skill_content

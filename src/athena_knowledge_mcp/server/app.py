@@ -6,6 +6,7 @@ from mcp.server.fastmcp import FastMCP
 
 from athena_knowledge_mcp.core.config import AppConfig
 from athena_knowledge_mcp.handlers.athena_handlers import AthenaHandlers
+from athena_knowledge_mcp.handlers.aws_cli_handlers import AwsCliHandlers
 from athena_knowledge_mcp.handlers.catalog_handlers import CatalogHandlers
 from athena_knowledge_mcp.handlers.file_handlers import FileHandlers
 from athena_knowledge_mcp.handlers.onboarding_handlers import OnboardingHandlers
@@ -15,6 +16,7 @@ from athena_knowledge_mcp.repositories.s3_catalog_repository import S3CatalogRep
 from athena_knowledge_mcp.repositories.s3_skill_repository import S3SkillRepository
 from athena_knowledge_mcp.server.lifecycle import build_container
 from athena_knowledge_mcp.services.athena_service import AthenaService
+from athena_knowledge_mcp.services.aws_cli_service import AwsCliService
 from athena_knowledge_mcp.services.aws_session_service import AwsSessionService
 from athena_knowledge_mcp.services.onboarding_service import OnboardingService
 from athena_knowledge_mcp.services.result_materialization_service import (
@@ -106,6 +108,7 @@ def build_app() -> FastMCP:
     onboarding_handlers = OnboardingHandlers(onboarding_service)
     catalog_handlers = CatalogHandlers(onboarding_service, create_catalog_service)
     file_handlers = FileHandlers(onboarding_service, create_table_skill_service)
+    aws_cli_handlers = AwsCliHandlers(AwsCliService())
     athena_handlers = AthenaHandlers(
         onboarding_service,
         create_athena_service,
@@ -305,6 +308,47 @@ def build_app() -> FastMCP:
         return catalog_handlers.list_catalog_tables(database_name)
 
     @mcp.tool(
+        name="list_aws_cli_profiles",
+        description=("List AWS profile names found in local AWS CLI config and credentials files."),
+    )
+    def list_aws_cli_profiles() -> list[str]:
+        """List local AWS CLI profile names."""
+        return aws_cli_handlers.list_aws_cli_profiles()
+
+    @mcp.tool(
+        name="aws_sso_login",
+        description=(
+            "Run `aws sso login` for a specific profile to refresh local SSO session tokens."
+        ),
+    )
+    def aws_sso_login(
+        profile: str,
+        timeout_seconds: int = 180,
+    ) -> dict[str, object]:
+        """Run AWS CLI SSO login for one profile."""
+        return aws_cli_handlers.aws_sso_login(
+            profile=profile,
+            timeout_seconds=timeout_seconds,
+        )
+
+    @mcp.tool(
+        name="aws_sts_get_caller_identity",
+        description=(
+            "Run `aws sts get-caller-identity` using AWS CLI for the provided profile "
+            "or current default credentials."
+        ),
+    )
+    def aws_sts_get_caller_identity(
+        profile: str | None = None,
+        timeout_seconds: int = 60,
+    ) -> dict[str, object]:
+        """Read caller identity via AWS CLI."""
+        return aws_cli_handlers.aws_sts_get_caller_identity(
+            profile=profile,
+            timeout_seconds=timeout_seconds,
+        )
+
+    @mcp.tool(
         name="execute_athena_query",
         description=("Execute SQL in Athena and optionally wait for completion."),
     )
@@ -331,12 +375,15 @@ def build_app() -> FastMCP:
 
     @mcp.tool(
         name="list_athena_databases",
-        description=("List databases directly from the configured Athena catalog."),
+        description=(
+            "List databases directly from Athena. If the user already knows the database, "
+            "prefer asking them to type it instead of relying on this call."
+        ),
     )
     def list_athena_databases(
         catalog: str | None = None,
     ) -> list[dict[str, object]]:
-        """List databases directly from the configured Athena catalog."""
+        """List databases directly from Athena; in restricted IAM setups this may fail."""
         return athena_handlers.list_athena_databases(
             catalog=catalog,
         )
@@ -362,17 +409,17 @@ def build_app() -> FastMCP:
 
     @mcp.tool(
         name="get_athena_table_metadata",
-        description="Fetch detailed metadata for one Athena table.",
+        description=(
+            "Fetch table metadata by running SHOW CREATE TABLE in the user-provided "
+            "database instead of using GetTableMetadata."
+        ),
     )
     def get_athena_table_metadata(
         database_name: str,
         table_name: str,
         catalog: str | None = None,
     ) -> dict[str, object]:
-        """Fetch detailed metadata for one Athena table.
-
-        Reads directly from the Athena catalog.
-        """
+        """Derive columns, partitions and properties from SHOW CREATE TABLE."""
         return athena_handlers.get_athena_table_metadata(
             database_name=database_name,
             table_name=table_name,

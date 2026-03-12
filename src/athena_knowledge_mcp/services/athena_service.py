@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from dataclasses import dataclass
 from time import sleep
 from typing import Any
@@ -93,27 +94,17 @@ class AthenaService:
                 "Cliente Athena nao configurado para consultar propriedades da tabela"
             )
 
-        response: dict[str, Any] = self.athena_client.get_table_metadata(
-            CatalogName=resolved_catalog,
-            DatabaseName=database_name,
-            TableName=table_name,
-            WorkGroup=configuration.athena_workgroup,
-        )
-        metadata = response["TableMetadata"]
-        return AthenaTableMetadata(
+        ddl = self._fetch_show_create_table_statement(
+            configuration,
             database_name=database_name,
             table_name=table_name,
             catalog=resolved_catalog,
-            sources=["athena"],
-            table_type=metadata.get("TableType"),
-            owner=metadata.get("Owner"),
-            create_time=metadata.get("CreateTime"),
-            last_access_time=metadata.get("LastAccessTime"),
-            columns=[self._build_column(column) for column in metadata.get("Columns", [])],
-            partition_keys=[
-                self._build_column(column) for column in metadata.get("PartitionKeys", [])
-            ],
-            parameters=metadata.get("Parameters", {}),
+        )
+        return self._parse_show_create_table(
+            database_name=database_name,
+            table_name=table_name,
+            catalog=resolved_catalog,
+            ddl=ddl,
         )
 
     def sync_database_to_catalog(
@@ -415,6 +406,293 @@ class AthenaService:
                 break
         tables.sort(key=lambda item: item["Name"])
         return tables
+
+    def _fetch_show_create_table_statement(
+        self,
+        configuration: ServerConfiguration,
+        database_name: str,
+        table_name: str,
+        catalog: str,
+    ) -> str:
+        assert self.athena_client is not None
+        response: dict[str, Any] = self.athena_client.start_query_execution(
+            QueryString=f"SHOW CREATE TABLE {self._quote_sql_identifier(table_name)}",
+            QueryExecutionContext={
+                "Database": database_name,
+                "Catalog": catalog,
+            },
+            WorkGroup=configuration.athena_workgroup,
+            ResultConfiguration={
+                "OutputLocation": (
+                    f"s3://{configuration.query_results_s3_bucket}/"
+                    f"{configuration.query_results_s3_prefix.strip('/')}"
+                )
+            },
+        )
+        query_execution_id = response["QueryExecutionId"]
+        status_response = self._wait_for_completion(query_execution_id, max_wait_seconds=60)
+        query_execution = status_response["QueryExecution"]
+        status = query_execution["Status"]["State"]
+        if status != "SUCCEEDED":
+            raise QueryExecutionError(
+                query_execution["Status"].get("StateChangeReason", "Falha na query")
+            )
+
+        result_response: dict[str, Any] = self.athena_client.get_query_results(
+            QueryExecutionId=query_execution_id,
+            MaxResults=20,
+        )
+        rows = result_response.get("ResultSet", {}).get("Rows", [])
+        statement_parts: list[str] = []
+        for row in rows[1:]:
+            values = row.get("Data", [])
+            if not values:
+                continue
+            statement = values[0].get("VarCharValue")
+            if statement:
+                statement_parts.append(statement)
+
+        ddl = "\n".join(statement_parts).strip()
+        if not ddl:
+            raise QueryExecutionError(
+                f"SHOW CREATE TABLE nao retornou DDL para {database_name}.{table_name}"
+            )
+        return ddl
+
+    def _parse_show_create_table(
+        self,
+        database_name: str,
+        table_name: str,
+        catalog: str,
+        ddl: str,
+    ) -> AthenaTableMetadata:
+        header_match = re.search(
+            r"CREATE\s+(?P<external>EXTERNAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:`[^`]+`|\"[^\"]+\"|[^\s(]+)\s*\(",
+            ddl,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if header_match is None:
+            raise QueryExecutionError(
+                f"Nao foi possivel interpretar o DDL retornado para {database_name}.{table_name}"
+            )
+
+        columns_block, columns_end = self._extract_parenthesized_block(ddl, header_match.end() - 1)
+        suffix = ddl[columns_end:]
+
+        partition_keys: list[AthenaColumnMetadata] = []
+        partition_match = re.search(
+            r"\bPARTITIONED\s+BY\s*\(",
+            suffix,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if partition_match is not None:
+            partition_block, _ = self._extract_parenthesized_block(
+                suffix,
+                partition_match.end() - 1,
+            )
+            partition_keys = self._parse_column_block(partition_block)
+
+        parameters: dict[str, str | None] = {}
+        properties_match = re.search(
+            r"\bTBLPROPERTIES\s*\(",
+            suffix,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if properties_match is not None:
+            properties_block, _ = self._extract_parenthesized_block(
+                suffix,
+                properties_match.end() - 1,
+            )
+            parameters = self._parse_table_properties(properties_block)
+
+        return AthenaTableMetadata(
+            database_name=database_name,
+            table_name=table_name,
+            catalog=catalog,
+            sources=["athena"],
+            table_type=(
+                "EXTERNAL_TABLE"
+                if header_match.group("external") is not None
+                else "TABLE"
+            ),
+            columns=self._parse_column_block(columns_block),
+            partition_keys=partition_keys,
+            parameters=parameters,
+        )
+
+    def _extract_parenthesized_block(self, text: str, start_index: int) -> tuple[str, int]:
+        if start_index >= len(text) or text[start_index] != "(":
+            raise QueryExecutionError("DDL invalido: bloco entre parenteses nao encontrado")
+
+        depth = 0
+        quote: str | None = None
+        cursor = start_index
+        content_start = start_index + 1
+        while cursor < len(text):
+            char = text[cursor]
+            if quote is not None:
+                if char == quote:
+                    if cursor + 1 < len(text) and text[cursor + 1] == quote:
+                        cursor += 2
+                        continue
+                    quote = None
+                cursor += 1
+                continue
+
+            if char in {"'", '"', "`"}:
+                quote = char
+                cursor += 1
+                continue
+
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    return text[content_start:cursor], cursor + 1
+            cursor += 1
+
+        raise QueryExecutionError("DDL invalido: parenteses desbalanceados")
+
+    def _split_top_level_items(self, content: str) -> list[str]:
+        items: list[str] = []
+        current: list[str] = []
+        quote: str | None = None
+        round_depth = 0
+        angle_depth = 0
+        square_depth = 0
+        curly_depth = 0
+        cursor = 0
+
+        while cursor < len(content):
+            char = content[cursor]
+            if quote is not None:
+                current.append(char)
+                if char == quote:
+                    if cursor + 1 < len(content) and content[cursor + 1] == quote:
+                        current.append(content[cursor + 1])
+                        cursor += 2
+                        continue
+                    quote = None
+                cursor += 1
+                continue
+
+            if char in {"'", '"', "`"}:
+                quote = char
+                current.append(char)
+                cursor += 1
+                continue
+
+            if char == "(":
+                round_depth += 1
+            elif char == ")":
+                round_depth = max(0, round_depth - 1)
+            elif char == "<":
+                angle_depth += 1
+            elif char == ">":
+                angle_depth = max(0, angle_depth - 1)
+            elif char == "[":
+                square_depth += 1
+            elif char == "]":
+                square_depth = max(0, square_depth - 1)
+            elif char == "{":
+                curly_depth += 1
+            elif char == "}":
+                curly_depth = max(0, curly_depth - 1)
+            elif (
+                char == ","
+                and round_depth == 0
+                and angle_depth == 0
+                and square_depth == 0
+                and curly_depth == 0
+            ):
+                item = "".join(current).strip()
+                if item:
+                    items.append(item)
+                current = []
+                cursor += 1
+                continue
+
+            current.append(char)
+            cursor += 1
+
+        item = "".join(current).strip()
+        if item:
+            items.append(item)
+        return items
+
+    def _parse_column_block(self, content: str) -> list[AthenaColumnMetadata]:
+        columns: list[AthenaColumnMetadata] = []
+        for definition in self._split_top_level_items(content):
+            name, tail = self._parse_definition_name_and_tail(definition)
+            comment: str | None = None
+            comment_match = re.search(
+                r"\s+COMMENT\s+'((?:''|[^'])*)'\s*$",
+                tail,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+            if comment_match is not None:
+                comment = comment_match.group(1).replace("''", "'")
+                tail = tail[:comment_match.start()].strip()
+            if not tail:
+                continue
+            columns.append(
+                AthenaColumnMetadata(
+                    name=name,
+                    type=tail,
+                    comment=comment,
+                )
+            )
+        return columns
+
+    def _parse_definition_name_and_tail(self, definition: str) -> tuple[str, str]:
+        text = definition.strip()
+        if not text:
+            raise QueryExecutionError("DDL invalido: definicao de coluna vazia")
+
+        if text[0] in {'"', "`"}:
+            quote = text[0]
+            name_chars: list[str] = []
+            cursor = 1
+            while cursor < len(text):
+                char = text[cursor]
+                if char == quote:
+                    if cursor + 1 < len(text) and text[cursor + 1] == quote:
+                        name_chars.append(quote)
+                        cursor += 2
+                        continue
+                    return "".join(name_chars), text[cursor + 1 :].strip()
+                name_chars.append(char)
+                cursor += 1
+            raise QueryExecutionError("DDL invalido: identificador com aspas nao fechado")
+
+        name, separator, tail = text.partition(" ")
+        if not separator:
+            raise QueryExecutionError(
+                f"DDL invalido: tipo nao encontrado para a definicao '{definition}'"
+            )
+        return name.strip(), tail.strip()
+
+    def _parse_table_properties(self, content: str) -> dict[str, str | None]:
+        properties: dict[str, str | None] = {}
+        for item in self._split_top_level_items(content):
+            match = re.fullmatch(
+                r"\s*'((?:''|[^'])*)'\s*=\s*'((?:''|[^'])*)'\s*",
+                item,
+                flags=re.DOTALL,
+            )
+            if match is None:
+                continue
+            properties[match.group(1).replace("''", "'")] = match.group(2).replace(
+                "''",
+                "'",
+            )
+        return properties
+
+    def _quote_sql_identifier(self, identifier: str) -> str:
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", identifier):
+            return identifier
+        return f'"{identifier.replace("\"", "\"\"")}"'
 
     def _build_column(self, column: dict[str, Any]) -> AthenaColumnMetadata:
         return AthenaColumnMetadata(

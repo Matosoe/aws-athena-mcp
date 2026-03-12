@@ -21,10 +21,16 @@ Servidor MCP local em Python para executar consultas no AWS Athena e manter um c
 
 ## Instalação
 
-```bash
-python -m venv .venv
-. .venv/Scripts/activate
-pip install -e .[dev]
+O projeto não exige criar um ambiente virtual local; instale as dependências diretamente no Python do sistema (3.11+ recomendado):
+
+```cmd
+py -3.11 -m pip install -e .[dev]
+```
+
+Se o launcher `py` não estiver disponível, use o executável `python` no PATH:
+
+```cmd
+python -m pip install -e .[dev]
 ```
 
 ## Distribuição simplificada
@@ -35,11 +41,18 @@ Para cliente final, o caminho mais simples agora é distribuir o executável Win
 
 Publicador do servidor:
 
-```powershell
-./scripts/build_windows_exe.ps1
+```cmd
+# usa o Python do PATH; argumento opcional pode ser fornecido
+scripts\build_windows_exe.py
 ```
 
-O build gera o binario em `dist/aws-athena-mcp.exe`.
+O build gera:
+
+- binario versionado em `dist/aws-athena-mcp-v<versao>-<yyyymmdd-HHMMSS>.exe`;
+- alias estavel em `dist/aws-athena-mcp-latest.exe`;
+- metadados do ultimo build em `dist/LATEST_BUILD.txt`.
+
+Politica completa de versionamento: `docs/versionamento.md`.
 
 Cliente final via MCP por `stdio`:
 
@@ -48,7 +61,7 @@ Cliente final via MCP por `stdio`:
 	"servers": {
 		"aws-athena-mcp": {
 			"type": "stdio",
-			"command": "C:/athena-mcp/aws-athena-mcp.exe",
+			"command": "C:/athena-mcp/aws-athena-mcp-latest.exe",
 			"args": []
 		}
 	},
@@ -66,7 +79,7 @@ Exemplo pronto de configuracao MCP fica em `.vscode/mcp.windows-exe.json`.
 
 ## Executar localmente
 
-```bash
+```cmd
 python main.py
 ```
 
@@ -92,16 +105,21 @@ O fluxo abaixo valida o servidor MCP de ponta a ponta, sem depender da integraç
 
 Antes do smoke test, vale confirmar a identidade AWS ativa:
 
-```bash
+```cmd
 aws sts get-caller-identity
 ```
 
 ### Executar o smoke test
 
-O script abaixo sobe o servidor com `python main.py`, conecta um cliente MCP via `stdio` e executa o fluxo completo. Ajuste os valores de bucket, prefixos e database conforme o seu ambiente.
+No `cmd.exe`, salve o script abaixo como `smoke_test_real.py` e execute:
 
-```bash
-python - <<'PY'
+```cmd
+python smoke_test_real.py
+```
+
+Conteudo de `smoke_test_real.py`:
+
+```python
 import json
 from datetime import UTC, datetime
 
@@ -195,7 +213,6 @@ async def main() -> None:
 
 
 anyio.run(main)
-PY
 ```
 
 ### Resultado esperado
@@ -218,6 +235,9 @@ PY
 - `refresh_catalog_index`
 - `list_catalog_databases`
 - `list_catalog_tables`
+- `list_aws_cli_profiles`
+- `aws_sso_login`
+- `aws_sts_get_caller_identity`
 - `list_athena_databases`
 - `list_athena_tables`
 - `get_athena_table_metadata`
@@ -228,11 +248,28 @@ PY
 - `materialize_large_result_locally`
 - `list_local_result_files`
 
+## Tools auxiliares de autenticacao AWS CLI
+
+Para reduzir atrito no fluxo de login SSO, o servidor expoe tools especificas da AWS CLI (sem execucao generica de shell):
+
+- `list_aws_cli_profiles`: lista perfis encontrados em `~/.aws/config` e `~/.aws/credentials`.
+- `aws_sso_login`: executa `aws sso login --profile <profile>`.
+- `aws_sts_get_caller_identity`: valida a sessao ativa com `aws sts get-caller-identity`.
+
+Fluxo recomendado para perfil SSO:
+
+1. Chamar `list_aws_cli_profiles` para escolher o profile.
+2. Chamar `aws_sso_login` com esse profile.
+3. Chamar `aws_sts_get_caller_identity` para confirmar identidade e conta.
+4. Usar `update_server_configuration` com `authentication_type="profile"` e `aws_profile="<profile>"`.
+
 ## Descoberta de catálogo
 
 As listagens padrão do servidor usam apenas o índice resumido mantido no S3. Isso mantém baixa latência e evita misturar dados ainda não catalogados com o inventário curado.
 
-Quando for necessário consultar o catálogo real do Athena, use as tools explícitas `list_athena_databases`, `list_athena_tables` e `get_athena_table_metadata`. Essas tools consultam apenas o Athena e não fazem merge automático com o índice.
+Quando for necessário consultar o catálogo real do Athena, use as tools explícitas `list_athena_tables` e `get_athena_table_metadata` com o `database_name` informado pelo usuário. Em ambientes com IAM restrito, `list_athena_databases` pode retornar access denied.
+
+`get_athena_table_metadata` passa a derivar colunas, partições e propriedades a partir de `SHOW CREATE TABLE <nome_da_tabela>` no database informado, evitando depender da permissão `GetTableMetadata`.
 
 Quando o usuário quiser enriquecer o índice com tabelas descobertas no Athena, use `sync_athena_database_to_catalog` para gerar skills básicas e atualizar o catálogo S3 de forma controlada.
 
@@ -240,7 +277,7 @@ Para ações genéricas no Athena, continue usando `execute_athena_query`. Isso 
 
 ## Qualidade
 
-```bash
+```cmd
 pytest
 ruff check .
 mypy src
@@ -257,12 +294,12 @@ O repositorio inclui um hook local de pre-commit em `.githooks/pre-commit` que b
 
 Ative o hook localmente com:
 
-```bash
+```cmd
 git config core.hooksPath .githooks
 ```
 
 Para validar manualmente antes de commitar:
 
-```bash
-PYTHONPATH=src python -m athena_knowledge_mcp.utils.secret_scanner --staged
+```cmd
+set PYTHONPATH=src && python -m athena_knowledge_mcp.utils.secret_scanner --staged
 ```
