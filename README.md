@@ -24,10 +24,10 @@ Servidor MCP local em Python para executar consultas no AWS Athena e manter um c
 O projeto não exige criar um ambiente virtual local; instale as dependências diretamente no Python do sistema (3.11+ recomendado):
 
 ```cmd
-py -3.11 -m pip install -e .[dev]
+py -m pip install -e .[dev]
 ```
 
-Se o launcher `py` não estiver disponível, use o executável `python` no PATH:
+Se quiser forcar uma versao especifica, use por exemplo `py -3.11`. Se o launcher `py` nao estiver disponivel, use o executavel `python` no PATH:
 
 ```cmd
 python -m pip install -e .[dev]
@@ -42,7 +42,7 @@ Para cliente final, o caminho mais simples agora é distribuir o executável Win
 Publicador do servidor:
 
 ```cmd
-# usa o Python do PATH; argumento opcional pode ser fornecido
+# detecta `py -3.11`, depois `py`, e por fim `python`; argumento opcional pode ser fornecido
 scripts\build_windows_exe.py
 ```
 

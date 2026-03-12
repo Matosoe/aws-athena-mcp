@@ -1,4 +1,6 @@
 # (venv no longer tracked)
+.venv/
+.venv-debug/
 
 __pycache__/
 .pytest_cache/
