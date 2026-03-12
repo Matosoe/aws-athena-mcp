@@ -73,6 +73,11 @@ Saida:
 
 Lista os databases diretamente no Athena, sem usar merge com o indice do catalogo.
 
+Observacao:
+
+- em ambientes com IAM restrito, essa tool pode falhar com access denied;
+- quando o usuario ja souber o database, prefira pedir o nome digitado e seguir direto para `list_athena_tables` ou `get_athena_table_metadata`.
+
 Entradas:
 
 - catalog opcional
@@ -97,7 +102,7 @@ Saida:
 
 ## get_athena_table_metadata
 
-Retorna as propriedades de uma tabela diretamente do Athena, incluindo colunas, particoes e parametros.
+Retorna as propriedades de uma tabela diretamente do Athena, derivando colunas, particoes e parametros a partir de `SHOW CREATE TABLE <nome_da_tabela>` executado no database informado.
 
 Entradas:
 
@@ -109,7 +114,7 @@ Saida:
 
 - database_name, table_name, catalog
 - columns e partition_keys
-- table_type, create_time, last_access_time e parameters
+- table_type e parameters
 - sources
 
 ## sync_athena_database_to_catalog

@@ -375,12 +375,15 @@ def build_app() -> FastMCP:
 
     @mcp.tool(
         name="list_athena_databases",
-        description=("List databases directly from the configured Athena catalog."),
+        description=(
+            "List databases directly from Athena. If the user already knows the database, "
+            "prefer asking them to type it instead of relying on this call."
+        ),
     )
     def list_athena_databases(
         catalog: str | None = None,
     ) -> list[dict[str, object]]:
-        """List databases directly from the configured Athena catalog."""
+        """List databases directly from Athena; in restricted IAM setups this may fail."""
         return athena_handlers.list_athena_databases(
             catalog=catalog,
         )
@@ -406,17 +409,17 @@ def build_app() -> FastMCP:
 
     @mcp.tool(
         name="get_athena_table_metadata",
-        description="Fetch detailed metadata for one Athena table.",
+        description=(
+            "Fetch table metadata by running SHOW CREATE TABLE in the user-provided "
+            "database instead of using GetTableMetadata."
+        ),
     )
     def get_athena_table_metadata(
         database_name: str,
         table_name: str,
         catalog: str | None = None,
     ) -> dict[str, object]:
-        """Fetch detailed metadata for one Athena table.
-
-        Reads directly from the Athena catalog.
-        """
+        """Derive columns, partitions and properties from SHOW CREATE TABLE."""
         return athena_handlers.get_athena_table_metadata(
             database_name=database_name,
             table_name=table_name,

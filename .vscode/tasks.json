@@ -4,10 +4,10 @@
 		{
 			"label": "Build MCP EXE",
 			"type": "process",
-			"command": ".venv/Scripts/python.exe",
+			"command": "py",
 			"args": [
-				"scripts/build_windows_exe.py",
-				".venv/Scripts/python.exe"
+				"-3.11",
+				"scripts/build_windows_exe.py"
 			],
 			"isBackground": false
 		},

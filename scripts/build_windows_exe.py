@@ -17,12 +17,27 @@ def run_command(args: list[str]) -> None:
 
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
-    python_exe = (
-        Path(sys.argv[1])
-        if len(sys.argv) > 1
-        else root / ".venv" / "Scripts" / "python.exe"
-    )
-    python_cmd = str(python_exe) if python_exe.exists() else "python"
+    # preferencia: argumentos fornecem caminho para interpretador
+    # caso contrario, tente o launcher `py -3.11` e depois `python`.
+    if len(sys.argv) > 1 and sys.argv[1]:
+        python_exe = Path(sys.argv[1])
+    else:
+        # nao assumimos mais .venv; instale direto no sistema
+        # tente py -3.11 se o launcher estiver disponível
+        if shutil.which("py"):
+            python_cmd = "py"
+            python_base_args = ["-3.11"]
+        else:
+            python_cmd = "python"
+            python_base_args = []
+        python_exe = None
+
+    if python_exe and python_exe.exists():
+        python_cmd = str(python_exe)
+        python_base_args = []
+
+    # python_cmd e python_base_args definem como chamar o python
+    
 
     pyproject_path = root / "pyproject.toml"
     if not pyproject_path.exists():
@@ -40,11 +55,13 @@ def main() -> int:
     print(f"Build version: {project_version}")
     print(f"Build timestamp: {build_timestamp}")
 
-    run_command([python_cmd, "-m", "pip", "install", "--upgrade", "pip"])
-    run_command([python_cmd, "-m", "pip", "install", ".[build]"])
-    run_command(
-        [python_cmd, "-m", "PyInstaller", "--clean", "aws-athena-mcp.spec"]
-    )
+    # helper para invocar o comando python com args base opcionais
+    def run_py(args: list[str]) -> None:
+        run_command([python_cmd, *python_base_args, *args])
+
+    run_py(["-m", "pip", "install", "--upgrade", "pip"])
+    run_py(["-m", "pip", "install", ".[build]"])
+    run_py(["-m", "PyInstaller", "--clean", "aws-athena-mcp.spec"])
 
     dist_dir = root / "dist"
     default_exe = dist_dir / "aws-athena-mcp.exe"

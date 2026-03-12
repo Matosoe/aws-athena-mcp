@@ -21,10 +21,16 @@ Servidor MCP local em Python para executar consultas no AWS Athena e manter um c
 
 ## Instalação
 
+O projeto não exige criar um ambiente virtual local; instale as dependências diretamente no Python do sistema (3.11+ recomendado):
+
 ```cmd
-python -m venv .venv
-call .venv\Scripts\activate.bat
-pip install -e .[dev]
+py -3.11 -m pip install -e .[dev]
+```
+
+Se o launcher `py` não estiver disponível, use o executável `python` no PATH:
+
+```cmd
+python -m pip install -e .[dev]
 ```
 
 ## Distribuição simplificada
@@ -36,7 +42,8 @@ Para cliente final, o caminho mais simples agora é distribuir o executável Win
 Publicador do servidor:
 
 ```cmd
-.venv\Scripts\python.exe scripts\build_windows_exe.py .venv\Scripts\python.exe
+# usa o Python do PATH; argumento opcional pode ser fornecido
+scripts\build_windows_exe.py
 ```
 
 O build gera:
@@ -73,7 +80,7 @@ Exemplo pronto de configuracao MCP fica em `.vscode/mcp.windows-exe.json`.
 ## Executar localmente
 
 ```cmd
-.venv\Scripts\python.exe main.py
+python main.py
 ```
 
 O servidor utiliza transporte `stdio`, adequado para integração com GitHub Copilot Chat no VS Code.
@@ -107,7 +114,7 @@ aws sts get-caller-identity
 No `cmd.exe`, salve o script abaixo como `smoke_test_real.py` e execute:
 
 ```cmd
-.venv\Scripts\python.exe smoke_test_real.py
+python smoke_test_real.py
 ```
 
 Conteudo de `smoke_test_real.py`:
@@ -260,7 +267,9 @@ Fluxo recomendado para perfil SSO:
 
 As listagens padrão do servidor usam apenas o índice resumido mantido no S3. Isso mantém baixa latência e evita misturar dados ainda não catalogados com o inventário curado.
 
-Quando for necessário consultar o catálogo real do Athena, use as tools explícitas `list_athena_databases`, `list_athena_tables` e `get_athena_table_metadata`. Essas tools consultam apenas o Athena e não fazem merge automático com o índice.
+Quando for necessário consultar o catálogo real do Athena, use as tools explícitas `list_athena_tables` e `get_athena_table_metadata` com o `database_name` informado pelo usuário. Em ambientes com IAM restrito, `list_athena_databases` pode retornar access denied.
+
+`get_athena_table_metadata` passa a derivar colunas, partições e propriedades a partir de `SHOW CREATE TABLE <nome_da_tabela>` no database informado, evitando depender da permissão `GetTableMetadata`.
 
 Quando o usuário quiser enriquecer o índice com tabelas descobertas no Athena, use `sync_athena_database_to_catalog` para gerar skills básicas e atualizar o catálogo S3 de forma controlada.
 
@@ -292,5 +301,5 @@ git config core.hooksPath .githooks
 Para validar manualmente antes de commitar:
 
 ```cmd
-set PYTHONPATH=src && .venv\Scripts\python.exe -m athena_knowledge_mcp.utils.secret_scanner --staged
+set PYTHONPATH=src && python -m athena_knowledge_mcp.utils.secret_scanner --staged
 ```

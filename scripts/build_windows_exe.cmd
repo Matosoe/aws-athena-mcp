@@ -5,8 +5,18 @@ set "PROJECT_ROOT=%~dp0.."
 pushd "%PROJECT_ROOT%" >nul
 
 set "PYTHON_EXE=%~1"
-if "%PYTHON_EXE%"=="" set "PYTHON_EXE=.venv\Scripts\python.exe"
-if not exist "%PYTHON_EXE%" set "PYTHON_EXE=python"
+if "%PYTHON_EXE%"=="" (
+  if exist "%SYSTEMDRIVE%\Python311\python.exe" (
+    set "PYTHON_EXE=python"
+  ) else (
+    set "PYTHON_EXE=python"
+  )
+)
+
+if not exist "%PYTHON_EXE%" (
+  echo Aviso: Python nao encontrado em %PYTHON_EXE%, tentando "python" do PATH.
+  set "PYTHON_EXE=python"
+)
 
 if not exist "pyproject.toml" (
   echo Erro: arquivo pyproject.toml nao encontrado em "%CD%".
