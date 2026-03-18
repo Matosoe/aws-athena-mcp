@@ -5,6 +5,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from athena_knowledge_mcp.core.config import AppConfig
+from athena_knowledge_mcp.core.models import DEFAULT_S3_PREFIX
 from athena_knowledge_mcp.handlers.athena_handlers import AthenaHandlers
 from athena_knowledge_mcp.handlers.aws_cli_handlers import AwsCliHandlers
 from athena_knowledge_mcp.handlers.catalog_handlers import CatalogHandlers
@@ -115,12 +116,20 @@ def build_app() -> FastMCP:
         create_materialization_service,
         create_table_skill_service,
     )
+    storage_onboarding_note = (
+        " If the storage bucket or prefix is still undefined, first call "
+        "`list_accessible_s3_buckets`, ask the user to choose one of the returned buckets, "
+        f"and suggest the default prefix `{DEFAULT_S3_PREFIX}` unless they request a custom prefix."
+    )
 
     mcp = FastMCP("AWS Athena Knowledge MCP", json_response=True)
 
     @mcp.tool(
         name="initialize_server_configuration",
-        description=("Persist the initial AWS and Athena configuration used by the " "server."),
+        description=(
+            "Persist the initial AWS and Athena configuration used by the server."
+            + storage_onboarding_note
+        ),
     )
     def initialize_server_configuration(
         authentication_type: str,
@@ -128,9 +137,9 @@ def build_app() -> FastMCP:
         athena_workgroup: str,
         default_database: str,
         query_results_s3_bucket: str,
-        query_results_s3_prefix: str,
         catalog_bucket: str,
-        catalog_prefix: str,
+        query_results_s3_prefix: str = DEFAULT_S3_PREFIX,
+        catalog_prefix: str = DEFAULT_S3_PREFIX,
         athena_catalog: str = "AwsDataCatalog",
         local_large_results_folder: str = "downloads",
         inline_result_max_bytes: int = 500000,
@@ -179,8 +188,23 @@ def build_app() -> FastMCP:
         return onboarding_handlers.get_server_configuration_status()
 
     @mcp.tool(
+        name="list_accessible_s3_buckets",
+        description=(
+            "List accessible S3 buckets for onboarding so the user can choose a bucket from "
+            f"the returned list. Suggest the default prefix `{DEFAULT_S3_PREFIX}` unless the "
+            "user explicitly asks for a custom prefix."
+        ),
+    )
+    def list_accessible_s3_buckets() -> dict[str, object]:
+        """List S3 buckets that can be reached with the current AWS credentials."""
+        return onboarding_handlers.list_accessible_s3_buckets()
+
+    @mcp.tool(
         name="update_server_configuration",
-        description=("Update one or more persisted server configuration fields."),
+        description=(
+            "Update one or more persisted server configuration fields."
+            + storage_onboarding_note
+        ),
     )
     def update_server_configuration(
         authentication_type: str | None = None,
@@ -234,7 +258,10 @@ def build_app() -> FastMCP:
 
     @mcp.tool(
         name="search_table_catalog",
-        description=("Search the indexed table catalog by text and return matching " "entries."),
+        description=(
+            "Search the indexed table catalog by text and return matching entries."
+            + storage_onboarding_note
+        ),
     )
     def search_table_catalog(
         query: str,
@@ -285,7 +312,10 @@ def build_app() -> FastMCP:
 
     @mcp.tool(
         name="refresh_catalog_index",
-        description=("Reload the local catalog index from persisted catalog storage."),
+        description=(
+            "Reload the local catalog index from persisted catalog storage."
+            + storage_onboarding_note
+        ),
     )
     def refresh_catalog_index() -> dict[str, int]:
         """Reload the local catalog index from persisted storage."""
@@ -318,7 +348,8 @@ def build_app() -> FastMCP:
     @mcp.tool(
         name="aws_sso_login",
         description=(
-            "Run `aws sso login` for a specific profile to refresh local SSO session tokens."
+            "Start `aws sso login` for a profile and let the user approve the "
+            "browser login before continuing with authenticated AWS tools."
         ),
     )
     def aws_sso_login(
@@ -350,7 +381,10 @@ def build_app() -> FastMCP:
 
     @mcp.tool(
         name="execute_athena_query",
-        description=("Execute SQL in Athena and optionally wait for completion."),
+        description=(
+            "Execute SQL in Athena and optionally wait for completion."
+            + storage_onboarding_note
+        ),
     )
     def execute_athena_query(
         query: str,
@@ -428,7 +462,10 @@ def build_app() -> FastMCP:
 
     @mcp.tool(
         name="sync_athena_database_to_catalog",
-        description=("Import Athena tables into the indexed catalog and generate " "basic skills."),
+        description=(
+            "Import Athena tables into the indexed catalog and generate basic skills."
+            + storage_onboarding_note
+        ),
     )
     def sync_athena_database_to_catalog(
         database_name: str,
@@ -464,7 +501,10 @@ def build_app() -> FastMCP:
 
     @mcp.tool(
         name="fetch_query_result_preview",
-        description=("Fetch an inline preview of the result set for a completed " "Athena query."),
+        description=(
+            "Fetch an inline preview of the result set for a completed Athena query."
+            + storage_onboarding_note
+        ),
     )
     def fetch_query_result_preview(
         query_execution_id: str,
@@ -474,7 +514,10 @@ def build_app() -> FastMCP:
 
     @mcp.tool(
         name="materialize_large_result_locally",
-        description=("Download a large Athena query result file to local storage."),
+        description=(
+            "Download a large Athena query result file to local storage."
+            + storage_onboarding_note
+        ),
     )
     def materialize_large_result_locally(
         query_execution_id: str,
@@ -487,7 +530,10 @@ def build_app() -> FastMCP:
 
     @mcp.tool(
         name="list_local_result_files",
-        description="List Athena result files that were materialized locally.",
+        description=(
+            "List Athena result files that were materialized locally."
+            + storage_onboarding_note
+        ),
     )
     def list_local_result_files() -> list[str]:
         """List Athena result files materialized to local storage."""

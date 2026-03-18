@@ -8,6 +8,16 @@ from typing import Any
 from pydantic import BaseModel, Field, model_validator
 
 
+DEFAULT_S3_PREFIX = "mcp/athena/"
+
+
+def normalize_s3_prefix(value: str) -> str:
+    normalized = value.strip().strip("/")
+    if not normalized:
+        return DEFAULT_S3_PREFIX
+    return f"{normalized}/"
+
+
 class AwsAuthenticationType(StrEnum):
     DEFAULT_CREDENTIALS = "default_credentials"
     PROFILE = "profile"
@@ -36,11 +46,17 @@ class ServerConfiguration(BaseModel):
     local_large_results_folder: Path = Field(default=Path("downloads"))
     inline_result_max_bytes: int = Field(default=500_000, ge=1)
     inline_result_max_rows: int = Field(default=200, ge=1)
-    last_updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC)
+    )
 
     @model_validator(mode="after")
-    def normalize_paths(self) -> ServerConfiguration:
+    def normalize_fields(self) -> ServerConfiguration:
         self.local_large_results_folder = Path(self.local_large_results_folder)
+        self.query_results_s3_prefix = normalize_s3_prefix(
+            self.query_results_s3_prefix
+        )
+        self.catalog_prefix = normalize_s3_prefix(self.catalog_prefix)
         return self
 
 
@@ -55,6 +71,11 @@ class ConfigurationStatus(BaseModel):
     missing_fields: list[str] = Field(default_factory=list)
     last_updated_at: datetime | None = None
     catalog_last_sync_at: datetime | None = None
+    storage_selection_required: bool = False
+    storage_missing_fields: list[str] = Field(default_factory=list)
+    available_s3_buckets: list[str] = Field(default_factory=list)
+    recommended_s3_prefix: str | None = None
+    next_step: str | None = None
 
 
 class AthenaQueryRequest(BaseModel):
@@ -135,7 +156,9 @@ class CatalogEntry(BaseModel):
     common_use_cases: list[str] = Field(default_factory=list)
     detail_file_s3_uri: str
     tags: list[str] = Field(default_factory=list)
-    last_updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC)
+    )
 
     def searchable_text(self) -> str:
         parts = [

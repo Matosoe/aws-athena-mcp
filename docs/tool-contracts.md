@@ -20,6 +20,11 @@ Entradas principais:
 - inline_result_max_rows
 - aws_profile ou chaves AWS quando aplicavel
 
+Observacao:
+
+- quando o bucket ainda nao estiver definido, prefira listar os buckets acessiveis e pedir para o usuario escolher um da lista;
+- o prefixo padrao sugerido para resultados e catalogo deve ser `mcp/athena/`, so pedindo digitacao manual quando o usuario quiser um prefixo personalizado.
+
 Saida:
 
 - status configurado
@@ -29,9 +34,34 @@ Saida:
 
 Informa se a configuracao minima existe e quais campos faltam.
 
+Saida adicional quando storage estiver incompleto:
+
+- storage_selection_required
+- storage_missing_fields
+- available_s3_buckets quando a AWS puder ser consultada
+- recommended_s3_prefix
+- next_step
+
+## list_accessible_s3_buckets
+
+Lista os buckets S3 acessiveis com as credenciais AWS atuais para o fluxo de onboarding.
+
+Saida:
+
+- buckets
+- recommended_prefix com valor `mcp/athena/`
+- requires_bucket_selection
+- message
+- next_step
+
 ## update_server_configuration
 
 Atualiza parcialmente a configuracao persistida.
+
+Observacao:
+
+- quando o bucket ainda nao estiver definido, prefira listar os buckets acessiveis e pedir para o usuario escolher um da lista;
+- se o prefixo vier vazio, o servidor normaliza para `mcp/athena/`.
 
 ## search_table_catalog
 
@@ -68,6 +98,50 @@ Entradas:
 Saida:
 
 - lista de itens do indice com database_name, table_name, summary, tags e detail_file_s3_uri.
+
+## list_aws_cli_profiles
+
+Lista os perfis encontrados localmente nos arquivos do AWS CLI.
+
+Saida:
+
+- lista de nomes de perfil.
+
+## aws_sso_login
+
+Inicia `aws sso login` para um perfil especifico sem bloquear a tool.
+
+Comportamento esperado:
+
+- o AWS CLI deve tentar abrir o navegador padrao para o usuario aprovar o login;
+- a tool retorna imediatamente com status de aguardando confirmacao do usuario;
+- depois disso, o agente deve pedir ao usuario para confirmar que aprovou o login no navegador antes de seguir.
+
+Entradas:
+
+- profile
+- timeout_seconds mantido apenas por compatibilidade da interface
+
+Saida:
+
+- success
+- command
+- status igual a `pending_user_confirmation`
+- requires_user_confirmation igual a `true`
+- next_step orientando o agente a pedir confirmacao ao usuario
+
+## aws_sts_get_caller_identity
+
+Valida a identidade AWS ativa usando AWS CLI.
+
+Entradas:
+
+- profile opcional
+
+Saida:
+
+- success
+- identity quando o retorno JSON for valido
 
 ## list_athena_databases
 
