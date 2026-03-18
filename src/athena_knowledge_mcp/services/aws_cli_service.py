@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import configparser
 import json
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -42,12 +43,58 @@ class AwsCliService:
         profile: str,
         timeout_seconds: int = 180,
     ) -> dict[str, object]:
-        """Run `aws sso login` for one profile."""
+        """Start `aws sso login` for one profile without blocking."""
         self._validate_profile(profile)
-        return self._run_command(
-            ["sso", "login", "--profile", profile],
-            timeout_seconds=timeout_seconds,
-        )
+        del timeout_seconds
+
+        executable = self.aws_executable or shutil.which("aws") or "aws"
+        command = [executable, "sso", "login", "--profile", profile]
+
+        popen_kwargs: dict[str, object] = {
+            "stdin": subprocess.DEVNULL,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "cwd": str(Path.home()),
+        }
+
+        if os.name == "nt":
+            creationflags = 0
+            creationflags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            creationflags |= getattr(subprocess, "DETACHED_PROCESS", 0)
+            popen_kwargs["creationflags"] = creationflags
+        else:
+            popen_kwargs["start_new_session"] = True
+
+        try:
+            subprocess.Popen(command, **popen_kwargs)
+        except FileNotFoundError:
+            return {
+                "success": False,
+                "exit_code": None,
+                "stdout": "",
+                "stderr": "AWS CLI not found in PATH",
+                "command": " ".join(command),
+            }
+
+        return {
+            "success": True,
+            "exit_code": None,
+            "stdout": "",
+            "stderr": "",
+            "command": " ".join(command),
+            "status": "pending_user_confirmation",
+            "browser_login_started": True,
+            "requires_user_confirmation": True,
+            "message": (
+                "AWS SSO login was started for the selected profile. "
+                "A browser window should open so the user can approve login."
+            ),
+            "next_step": (
+                "Ask the user to confirm after approving the login in the "
+                "browser. Only continue with authenticated AWS tools after "
+                "that confirmation."
+            ),
+        }
 
     def sts_get_caller_identity(
         self,

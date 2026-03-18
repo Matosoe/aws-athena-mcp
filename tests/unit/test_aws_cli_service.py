@@ -38,18 +38,23 @@ def test_list_profiles_reads_credentials_and_config(
 def test_sso_login_success(monkeypatch) -> None:
     service = AwsCliService(aws_executable="aws")
 
-    def _fake_run(*args, **kwargs):
+    def _fake_popen(*args, **kwargs):
         command = args[0]
         assert command == ["aws", "sso", "login", "--profile", "default"]
-        assert kwargs["timeout"] == 30
-        return _Completed(0, "ok", "")
+        assert kwargs["stdin"] is subprocess.DEVNULL
+        assert kwargs["stdout"] is subprocess.DEVNULL
+        assert kwargs["stderr"] is subprocess.DEVNULL
+        assert kwargs["cwd"]
+        return object()
 
-    monkeypatch.setattr(subprocess, "run", _fake_run)
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
 
     result = service.sso_login("default", timeout_seconds=30)
 
     assert result["success"] is True
-    assert result["exit_code"] == 0
+    assert result["status"] == "pending_user_confirmation"
+    assert result["browser_login_started"] is True
+    assert result["requires_user_confirmation"] is True
 
 
 def test_sts_get_caller_identity_parses_json(monkeypatch) -> None:
@@ -80,15 +85,36 @@ def test_sts_get_caller_identity_parses_json(monkeypatch) -> None:
 def test_run_command_handles_missing_aws(monkeypatch) -> None:
     service = AwsCliService(aws_executable="aws")
 
-    def _fake_run(*_args, **_kwargs):
+    def _fake_popen(*_args, **_kwargs):
         raise FileNotFoundError()
 
-    monkeypatch.setattr(subprocess, "run", _fake_run)
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
 
     result = service.sso_login("default")
 
     assert result["success"] is False
     assert result["stderr"] == "AWS CLI not found in PATH"
+
+
+def test_sso_login_uses_detached_session_outside_windows(monkeypatch) -> None:
+    service = AwsCliService(aws_executable="aws")
+
+    def _fake_popen(*args, **kwargs):
+        command = args[0]
+        assert command == ["aws", "sso", "login", "--profile", "default"]
+        assert kwargs["start_new_session"] is True
+        return object()
+
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(
+        "athena_knowledge_mcp.services.aws_cli_service.os.name",
+        "posix",
+    )
+
+    result = service.sso_login("default")
+
+    assert result["success"] is True
+    assert result["command"] == "aws sso login --profile default"
 
 
 def test_sso_login_rejects_empty_profile() -> None:
