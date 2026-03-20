@@ -38,7 +38,8 @@ class ServerConfiguration(BaseModel):
     aws_profile: str | None = None
     athena_workgroup: str
     athena_catalog: str = "AwsDataCatalog"
-    default_database: str
+    athena_databases: list[str] = Field(default_factory=list)
+    default_database: str | None = None
     query_results_s3_bucket: str
     query_results_s3_prefix: str
     catalog_bucket: str
@@ -53,6 +54,13 @@ class ServerConfiguration(BaseModel):
     @model_validator(mode="after")
     def normalize_fields(self) -> ServerConfiguration:
         self.local_large_results_folder = Path(self.local_large_results_folder)
+        self.athena_databases = [
+            database.strip()
+            for database in self.athena_databases
+            if database and database.strip()
+        ]
+        if self.default_database is not None:
+            self.default_database = self.default_database.strip() or None
         self.query_results_s3_prefix = normalize_s3_prefix(
             self.query_results_s3_prefix
         )
@@ -97,7 +105,7 @@ class QueryExecutionRecord(BaseModel):
     query_execution_id: str
     status: str
     submitted_query: str
-    database: str
+    database: str | None = None
     catalog: str
     workgroup: str
     output_location: str | None = None

@@ -3,11 +3,11 @@
 	"tasks": [
 		{
 			"label": "Build MCP EXE",
-			"type": "process",
-			"command": "py",
+			"type": "shell",
+			"command": "cmd",
 			"args": [
-				"-3.11",
-				"scripts/build_windows_exe.py"
+				"/c",
+				"scripts\\build_windows_exe.cmd"
 			],
 			"isBackground": false
 		},
@@ -28,6 +28,16 @@
 			"args": [
 				"/c",
 				"git branch --show-current"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Check Winget Availability",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"winget --version"
 			],
 			"isBackground": false
 		}

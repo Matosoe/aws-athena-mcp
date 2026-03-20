@@ -15,7 +15,7 @@ def test_save_and_load_settings(tmp_path: Path) -> None:
         authentication_type=AwsAuthenticationType.DEFAULT_CREDENTIALS,
         aws_region="us-east-1",
         athena_workgroup="primary",
-        default_database="default",
+        athena_databases=["default", "analytics"],
         query_results_s3_bucket="results-bucket",
         query_results_s3_prefix="athena/results",
         catalog_bucket="catalog-bucket",
@@ -29,5 +29,6 @@ def test_save_and_load_settings(tmp_path: Path) -> None:
     assert loaded is not None
     assert loaded.aws_region == "us-east-1"
     assert loaded.catalog_bucket == "catalog-bucket"
+    assert loaded.athena_databases == ["default", "analytics"]
     assert loaded.query_results_s3_prefix == "athena/results/"
     assert loaded.catalog_prefix == DEFAULT_S3_PREFIX

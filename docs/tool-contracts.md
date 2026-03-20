@@ -10,7 +10,8 @@ Entradas principais:
 - aws_region
 - athena_workgroup
 - athena_catalog
-- default_database
+- athena_databases opcional
+- default_database opcional
 - query_results_s3_bucket
 - query_results_s3_prefix
 - catalog_bucket
@@ -24,6 +25,9 @@ Observacao:
 
 - quando o bucket ainda nao estiver definido, prefira listar os buckets acessiveis e pedir para o usuario escolher um da lista;
 - o prefixo padrao sugerido para resultados e catalogo deve ser `mcp/athena/`, so pedindo digitacao manual quando o usuario quiser um prefixo personalizado.
+- no onboarding interativo, faca uma pergunta por vez;
+- nao junte regiao AWS, workgroup e databases na mesma pergunta;
+- nao exija database padrao; se precisar registrar contexto, peca apenas uma lista opcional de databases em pergunta separada.
 
 Saida:
 

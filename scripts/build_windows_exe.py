@@ -9,35 +9,59 @@ import sys
 import tomllib
 
 
+SUPPORTED_PYTHON_VERSIONS = {(3, 11), (3, 12)}
+
+
 def run_command(args: list[str]) -> None:
     completed = subprocess.run(args, check=False)
     if completed.returncode != 0:
         raise SystemExit(completed.returncode)
 
 
+def is_supported_python(args: list[str]) -> bool:
+    version_check = "\n".join(
+        [
+            "import sys",
+            "raise SystemExit(",
+            "    0 if sys.version_info[:2] in ((3, 11), (3, 12)) else 1",
+            ")",
+        ]
+    )
+    completed = subprocess.run(
+        [
+            *args,
+            "-c",
+            version_check,
+        ],
+        check=False,
+    )
+    return completed.returncode == 0
+
+
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
-    # preferencia: argumentos fornecem caminho para interpretador
-    # caso contrario, tente o launcher `py -3.11` e depois `python`.
+    python_cmd = str(Path(sys.executable))
+    python_base_args: list[str] = []
+
+    # Preferencia: argumento explicito. Sem argumento, reutilize o
+    # interpretador atual, o que permite que a task do VS Code use a .venv.
     if len(sys.argv) > 1 and sys.argv[1]:
         python_exe = Path(sys.argv[1])
     else:
-        # nao assumimos mais .venv; instale direto no sistema
-        # tente py -3.11 se o launcher estiver disponível
-        if shutil.which("py"):
-            python_cmd = "py"
-            python_base_args = ["-3.11"]
-        else:
-            python_cmd = "python"
-            python_base_args = []
-        python_exe = None
+        python_exe = Path(sys.executable)
 
     if python_exe and python_exe.exists():
         python_cmd = str(python_exe)
         python_base_args = []
 
     # python_cmd e python_base_args definem como chamar o python
-    
+    if not is_supported_python([python_cmd, *python_base_args]):
+        print(
+            "Erro: o build exige Python 3.11 ou 3.12. "
+            "Recrie a .venv com scripts\\bootstrap_env.cmd "
+            "ou bash scripts/bootstrap_env.sh."
+        )
+        return 1
 
     pyproject_path = root / "pyproject.toml"
     if not pyproject_path.exists():
@@ -48,9 +72,7 @@ def main() -> int:
     project_version = str(project_data["project"]["version"])
     safe_version = re.sub(r"[^0-9A-Za-z\.-]", "-", project_version)
     build_timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    versioned_exe_name = (
-        f"aws-athena-mcp-v{safe_version}-{build_timestamp}.exe"
-    )
+    versioned_exe_name = f"aws-athena-mcp-v{safe_version}-{build_timestamp}.exe"
 
     print(f"Build version: {project_version}")
     print(f"Build timestamp: {build_timestamp}")
@@ -66,10 +88,7 @@ def main() -> int:
     dist_dir = root / "dist"
     default_exe = dist_dir / "aws-athena-mcp.exe"
     if not default_exe.exists():
-        print(
-            "Erro: build concluido, mas artefato esperado nao foi encontrado: "
-            f"{default_exe}"
-        )
+        print("Erro: build concluido, mas artefato esperado nao foi encontrado: " f"{default_exe}")
         return 1
 
     versioned_exe = dist_dir / versioned_exe_name

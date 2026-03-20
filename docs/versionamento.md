@@ -16,6 +16,8 @@ A versao oficial do repositorio fica em `pyproject.toml`, no campo `project.vers
 
 Todo build Windows deve ser feito por `scripts/build_windows_exe.py`.
 
+No fluxo padrao do repositorio, o ponto de entrada deve ser `scripts\build_windows_exe.cmd`, que recria a `.venv` se necessario com Python 3.11 ou 3.12 e depois chama `scripts/build_windows_exe.py`.
+
 O script gera:
 
 - artefato versionado: `dist/aws-athena-mcp-v<versao>-<yyyymmdd-HHMMSS>.exe`
@@ -30,7 +32,7 @@ Exemplo de artefato versionado:
 
 1. Atualizar `project.version` no `pyproject.toml` conforme impacto da mudanca.
 2. Atualizar changelog/release notes da entrega.
-3. Executar build via script `scripts/build_windows_exe.py`.
+3. Executar build via `scripts\build_windows_exe.cmd`.
 4. Publicar o artefato versionado gerado em `dist/`.
 5. Usar `aws-athena-mcp-latest.exe` apenas como atalho local para desenvolvimento/execucao.
 

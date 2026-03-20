@@ -15,7 +15,7 @@ Servidor MCP local em Python para executar consultas no AWS Athena e manter um c
 
 ## Requisitos
 
-- Python 3.11+
+- Python 3.11 ou 3.12
 - credenciais AWS válidas no ambiente local ou informadas no onboarding;
 - acesso ao bucket de resultados do Athena e ao bucket do catálogo.
 
@@ -51,20 +51,20 @@ source .venv/bin/activate
 
 ### Instalação manual
 
-Se preferir rodar os passos manualmente, crie a `.venv` e instale as dependências de desenvolvimento:
-
-```cmd
-py -3 -m venv .venv
-.venv\Scripts\python -m pip install --upgrade pip
-.venv\Scripts\python -m pip install -e .[dev]
-```
-
-Se o launcher `py` não estiver disponível, use o executável `python` no PATH, desde que seja Python 3.11 ou superior:
+Se preferir rodar os passos manualmente, use um executável que resolva para Python 3.11 ou 3.12, crie a `.venv` e instale as dependências de desenvolvimento:
 
 ```cmd
 python -m venv .venv
 .venv\Scripts\python -m pip install --upgrade pip
 .venv\Scripts\python -m pip install -e .[dev]
+```
+
+No Git Bash, Linux ou macOS, use o Python 3.11 ou 3.12 disponível no PATH:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -e '.[dev]'
 ```
 
 ## Distribuição simplificada
@@ -76,9 +76,11 @@ Para cliente final, o caminho mais simples agora é distribuir o executável Win
 Publicador do servidor:
 
 ```cmd
-# usa o Python do PATH; argumento opcional pode ser fornecido
-scripts\build_windows_exe.py
+# fluxo recomendado no Windows e na task do VS Code
+scripts\build_windows_exe.cmd
 ```
+
+No VS Code, a task `Build MCP EXE` usa esse mesmo wrapper automaticamente. Em Git Bash no Windows, rode primeiro `bash scripts/bootstrap_env.sh --venv-only` e depois `.venv/Scripts/python.exe scripts/build_windows_exe.py`.
 
 O build gera:
 
@@ -191,7 +193,7 @@ async def main() -> None:
 					"authentication_type": "default_credentials",
 					"aws_region": "us-east-1",
 					"athena_workgroup": "primary",
-					"default_database": "default",
+					"athena_databases": ["default", "analytics"],
 					"query_results_s3_bucket": "my-athena-results-bucket",
 					"query_results_s3_prefix": query_prefix,
 					"catalog_bucket": "my-athena-catalog-bucket",
@@ -307,7 +309,9 @@ Fluxo recomendado para perfil SSO:
 
 As listagens padrão do servidor usam apenas o índice resumido mantido no S3. Isso mantém baixa latência e evita misturar dados ainda não catalogados com o inventário curado.
 
-Quando for necessário consultar o catálogo real do Athena, use as tools explícitas `list_athena_tables` e `get_athena_table_metadata` com o `database_name` informado pelo usuário. Em ambientes com IAM restrito, `list_athena_databases` pode retornar access denied.
+Quando for necessario consultar o catalogo real do Athena, use as tools explicitas `list_athena_tables` e `get_athena_table_metadata` com o `database_name` informado pelo usuario. Em ambientes com IAM restrito, `list_athena_databases` pode retornar access denied.
+
+No onboarding interativo, faca uma pergunta por vez. Nao junte regiao AWS, workgroup e databases na mesma pergunta. Tambem nao exija um database padrao; quando fizer sentido, peca apenas uma lista opcional de databases em uma pergunta separada.
 
 `get_athena_table_metadata` passa a derivar colunas, partições e propriedades a partir de `SHOW CREATE TABLE <nome_da_tabela>` no database informado, evitando depender da permissão `GetTableMetadata`.
 

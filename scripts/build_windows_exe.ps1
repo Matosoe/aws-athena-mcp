@@ -1,22 +1,12 @@
-param(
-    [string]$PythonExecutable = ".venv/Scripts/python.exe"
-)
-
 $ErrorActionPreference = "Stop"
 
-if (-not (Test-Path $PythonExecutable)) {
-    $PythonExecutable = "python"
-}
+$projectRoot = Split-Path -Parent $PSScriptRoot
+Set-Location $projectRoot
 
-& $PythonExecutable -m pip install --upgrade pip
+& cmd /d /c "scripts\build_windows_exe.cmd"
+
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-& $PythonExecutable -m pip install .[build]
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
-
-& $PythonExecutable -m PyInstaller --clean aws-athena-mcp.spec
-exit $LASTEXITCODE
+exit 0
