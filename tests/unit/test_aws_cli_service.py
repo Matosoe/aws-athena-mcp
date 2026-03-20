@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import io
 import subprocess
 from pathlib import Path
 
@@ -12,29 +11,6 @@ class _Completed:
         self.returncode = returncode
         self.stdout = stdout
         self.stderr = stderr
-
-
-class _FakePopen:
-    def __init__(self, command: list[str], output: str, returncode: int = 0) -> None:
-        self.command = command
-        self.stdout = io.StringIO(output)
-        self.returncode = returncode
-        self._killed = False
-
-    def poll(self) -> int | None:
-        current_position = self.stdout.tell()
-        end_position = len(self.stdout.getvalue())
-        if self._killed:
-            return -9
-        if current_position < end_position:
-            return None
-        return self.returncode
-
-    def communicate(self) -> tuple[str, None]:
-        return (self.stdout.read(), None)
-
-    def kill(self) -> None:
-        self._killed = True
 
 
 def test_list_profiles_reads_credentials_and_config(
@@ -61,40 +37,24 @@ def test_list_profiles_reads_credentials_and_config(
 
 def test_sso_login_success(monkeypatch) -> None:
     service = AwsCliService(aws_executable="aws")
-    opened_urls: list[str] = []
 
     def _fake_popen(*args, **kwargs):
         command = args[0]
-        assert command == ["aws", "sso", "login", "--no-browser", "--profile", "default"]
-        assert kwargs["env"]["AWS_PAGER"] == ""
-        return _FakePopen(
-            command,
-            (
-                "Using a browser to open the SSO authorization page.\n"
-                "If the browser does not open, use the following URL:\n"
-                "https://device.sso.us-east-1.amazonaws.com/\n"
-                "Then enter the code:\n"
-                "ABCD-EFGH\n"
-                "Successfully logged into Start URL: https://example.awsapps.com/start\n"
-            ),
-            returncode=0,
-        )
-
-    def _fake_open(url: str) -> bool:
-        opened_urls.append(url)
-        return True
+        assert command == ["aws", "sso", "login", "--profile", "default"]
+        assert kwargs["stdin"] is subprocess.DEVNULL
+        assert kwargs["stdout"] is subprocess.DEVNULL
+        assert kwargs["stderr"] is subprocess.DEVNULL
+        assert kwargs["cwd"]
+        return object()
 
     monkeypatch.setattr(subprocess, "Popen", _fake_popen)
-    monkeypatch.setattr("webbrowser.open", _fake_open)
 
     result = service.sso_login("default", timeout_seconds=30)
 
     assert result["success"] is True
-    assert result["exit_code"] == 0
-    assert result["browser_opened"] is True
-    assert result["verification_url"] == "https://device.sso.us-east-1.amazonaws.com/"
-    assert result["user_code"] == "ABCD-EFGH"
-    assert opened_urls == ["https://device.sso.us-east-1.amazonaws.com/"]
+    assert result["status"] == "pending_user_confirmation"
+    assert result["browser_login_started"] is True
+    assert result["requires_user_confirmation"] is True
 
 
 def test_sts_get_caller_identity_parses_json(monkeypatch) -> None:
@@ -136,25 +96,29 @@ def test_run_command_handles_missing_aws(monkeypatch) -> None:
     assert result["stderr"] == "AWS CLI not found in PATH"
 
 
-def test_sso_login_returns_browser_flag_when_open_fails(monkeypatch) -> None:
+def test_sso_login_uses_detached_session_outside_windows(monkeypatch) -> None:
     service = AwsCliService(aws_executable="aws")
 
-    def _fake_popen(*args, **_kwargs):
+    def _fake_popen(*args, **kwargs):
         command = args[0]
-        return _FakePopen(
-            command,
-            "https://device.sso.us-east-1.amazonaws.com/\nWXYZ-1234\n",
-            returncode=0,
-        )
+        assert command == ["aws", "sso", "login", "--profile", "default"]
+        assert kwargs["start_new_session"] is True
+        return object()
 
     monkeypatch.setattr(subprocess, "Popen", _fake_popen)
-    monkeypatch.setattr("webbrowser.open", lambda _url: False)
+    monkeypatch.setattr(
+        "athena_knowledge_mcp.services.aws_cli_service.os.name",
+        "posix",
+    )
+    monkeypatch.setattr(
+        "athena_knowledge_mcp.services.aws_cli_service.Path.home",
+        lambda: Path("C:/tmp"),
+    )
 
     result = service.sso_login("default")
 
     assert result["success"] is True
-    assert result["browser_opened"] is False
-    assert result["verification_url"] == "https://device.sso.us-east-1.amazonaws.com/"
+    assert result["command"] == "aws sso login --profile default"
 
 
 def test_sso_login_rejects_empty_profile() -> None:

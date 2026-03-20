@@ -21,16 +21,50 @@ Servidor MCP local em Python para executar consultas no AWS Athena e manter um c
 
 ## Instalação
 
-O projeto não exige criar um ambiente virtual local; instale as dependências diretamente no Python do sistema (3.11+ recomendado):
+O caminho mais simples e previsível para desenvolvimento é usar uma `.venv` local dentro do projeto.
+
+### Windows
+
+No `cmd.exe` ou no terminal do VS Code:
 
 ```cmd
-py -m pip install -e .[dev]
+scripts\bootstrap_env.cmd
 ```
 
-Se quiser forcar uma versao especifica, use por exemplo `py -3.11`. Se o launcher `py` nao estiver disponivel, use o executavel `python` no PATH:
+Depois, quando quiser ativar manualmente o ambiente:
 
 ```cmd
-python -m pip install -e .[dev]
+.venv\Scripts\activate
+```
+
+### Git Bash, Linux ou macOS
+
+```bash
+bash scripts/bootstrap_env.sh
+```
+
+Depois, quando quiser ativar manualmente o ambiente:
+
+```bash
+source .venv/bin/activate
+```
+
+### Instalação manual
+
+Se preferir rodar os passos manualmente, crie a `.venv` e instale as dependências de desenvolvimento:
+
+```cmd
+py -3 -m venv .venv
+.venv\Scripts\python -m pip install --upgrade pip
+.venv\Scripts\python -m pip install -e .[dev]
+```
+
+Se o launcher `py` não estiver disponível, use o executável `python` no PATH, desde que seja Python 3.11 ou superior:
+
+```cmd
+python -m venv .venv
+.venv\Scripts\python -m pip install --upgrade pip
+.venv\Scripts\python -m pip install -e .[dev]
 ```
 
 ## Distribuição simplificada
@@ -79,10 +113,16 @@ Exemplo pronto de configuracao MCP fica em `.vscode/mcp.windows-exe.json`.
 ## Executar localmente
 
 ```cmd
-python main.py
+.venv\Scripts\python main.py
 ```
 
 O servidor utiliza transporte `stdio`, adequado para integração com GitHub Copilot Chat no VS Code.
+
+Para rodar testes unitários:
+
+```cmd
+.venv\Scripts\python -m pytest
+```
 
 ## Smoke Test Real
 
@@ -252,13 +292,13 @@ anyio.run(main)
 Para reduzir atrito no fluxo de login SSO, o servidor expoe tools especificas da AWS CLI (sem execucao generica de shell):
 
 - `list_aws_cli_profiles`: lista perfis encontrados em `~/.aws/config` e `~/.aws/credentials`.
-- `aws_sso_login`: executa `aws sso login --no-browser --profile <profile>`, extrai a URL de autorizacao e abre o navegador padrao do usuario.
+- `aws_sso_login`: inicia `aws sso login --profile <profile>` sem bloquear a tool e orienta o agente a aguardar a confirmacao do usuario apos a aprovacao no navegador.
 - `aws_sts_get_caller_identity`: valida a sessao ativa com `aws sts get-caller-identity`.
 
 Fluxo recomendado para perfil SSO:
 
 1. Chamar `list_aws_cli_profiles` para escolher o profile.
-2. Chamar `aws_sso_login` com esse profile. A tool abre o navegador padrao e retorna tambem a `verification_url` e o `user_code` para fallback manual.
+2. Chamar `aws_sso_login` com esse profile e aguardar o usuario concluir a aprovacao no navegador.
 3. Chamar `aws_sts_get_caller_identity` para confirmar identidade e conta.
 4. Usar `update_server_configuration` com `authentication_type="profile"` e `aws_profile="<profile>"`.
 

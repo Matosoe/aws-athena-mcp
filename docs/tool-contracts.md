@@ -20,6 +20,11 @@ Entradas principais:
 - inline_result_max_rows
 - aws_profile ou chaves AWS quando aplicavel
 
+Observacao:
+
+- quando o bucket ainda nao estiver definido, prefira listar os buckets acessiveis e pedir para o usuario escolher um da lista;
+- o prefixo padrao sugerido para resultados e catalogo deve ser `mcp/athena/`, so pedindo digitacao manual quando o usuario quiser um prefixo personalizado.
+
 Saida:
 
 - status configurado
@@ -29,9 +34,34 @@ Saida:
 
 Informa se a configuracao minima existe e quais campos faltam.
 
+Saida adicional quando storage estiver incompleto:
+
+- storage_selection_required
+- storage_missing_fields
+- available_s3_buckets quando a AWS puder ser consultada
+- recommended_s3_prefix
+- next_step
+
+## list_accessible_s3_buckets
+
+Lista os buckets S3 acessiveis com as credenciais AWS atuais para o fluxo de onboarding.
+
+Saida:
+
+- buckets
+- recommended_prefix com valor `mcp/athena/`
+- requires_bucket_selection
+- message
+- next_step
+
 ## update_server_configuration
 
 Atualiza parcialmente a configuracao persistida.
+
+Observacao:
+
+- quando o bucket ainda nao estiver definido, prefira listar os buckets acessiveis e pedir para o usuario escolher um da lista;
+- se o prefixo vier vazio, o servidor normaliza para `mcp/athena/`.
 
 ## search_table_catalog
 
@@ -71,32 +101,47 @@ Saida:
 
 ## list_aws_cli_profiles
 
-Lista perfis encontrados nos arquivos locais da AWS CLI para o usuario escolher antes do login.
+Lista os perfis encontrados localmente nos arquivos do AWS CLI.
 
 Saida:
 
-- lista de nomes de profile.
+- lista de nomes de perfil.
 
 ## aws_sso_login
 
-Executa o login SSO da AWS CLI para o profile escolhido em fluxo interativo de navegador.
+Inicia `aws sso login` para um perfil especifico sem bloquear a tool.
+
+Comportamento esperado:
+
+- o AWS CLI deve tentar abrir o navegador padrao para o usuario aprovar o login;
+- a tool retorna imediatamente com status de aguardando confirmacao do usuario;
+- depois disso, o agente deve pedir ao usuario para confirmar que aprovou o login no navegador antes de seguir.
 
 Entradas:
 
 - profile
-- timeout_seconds opcional
+- timeout_seconds mantido apenas por compatibilidade da interface
 
 Saida:
 
-- success, exit_code, stdout, stderr e command
-- profile usado no login
-- verification_url retornada pela AWS CLI
-- user_code para fallback manual
-- browser_opened indicando se o navegador padrao foi acionado
+- success
+- command
+- status igual a `pending_user_confirmation`
+- requires_user_confirmation igual a `true`
+- next_step orientando o agente a pedir confirmacao ao usuario
 
-Observacao:
+## aws_sts_get_caller_identity
 
-- o fluxo recomendado continua sendo listar os profiles primeiro, deixar o usuario escolher um deles e entao chamar `aws_sso_login`.
+Valida a identidade AWS ativa usando AWS CLI.
+
+Entradas:
+
+- profile opcional
+
+Saida:
+
+- success
+- identity quando o retorno JSON for valido
 
 ## list_athena_databases
 
@@ -126,36 +171,6 @@ Entradas:
 
 Saida:
 
-- lista com database_name, table_name e sources.
-
-## get_athena_table_metadata
-
-Retorna as propriedades de uma tabela diretamente do Athena, derivando colunas, particoes e parametros a partir de `SHOW CREATE TABLE <nome_da_tabela>` executado no database informado.
-
-Entradas:
-
-- database_name
-- table_name
-- catalog opcional
-
-Saida:
-
-- database_name, table_name, catalog
-- columns e partition_keys
-- table_type e parameters
-- sources
-
-## sync_athena_database_to_catalog
-
-Sincroniza tabelas de um database do Athena para o catalogo S3, gerando skills basicas automaticamente para enriquecer o indice.
-
-Entradas:
-
-- database_name
-- catalog opcional
-- name_prefix opcional para limitar o conjunto sincronizado
-- max_tables opcional para limitar a quantidade processada
-- overwrite_existing para substituir entradas ja existentes
 
 Saida:
 

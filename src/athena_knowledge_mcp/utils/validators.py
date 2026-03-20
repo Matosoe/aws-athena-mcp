@@ -36,7 +36,9 @@ def validate_configuration(configuration: ServerConfiguration, secrets: AwsSecre
             "aws_session_token e obrigatorio para authentication_type=session_token"
         )
 
-    validate_s3_uri(f"s3://{configuration.query_results_s3_bucket}/{configuration.query_results_s3_prefix}")
+    validate_s3_uri(
+        f"s3://{configuration.query_results_s3_bucket}/{configuration.query_results_s3_prefix}"
+    )
     validate_s3_uri(f"s3://{configuration.catalog_bucket}/{configuration.catalog_prefix}")
     validate_local_path(configuration.local_large_results_folder)
 

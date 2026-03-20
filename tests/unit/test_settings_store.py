@@ -1,6 +1,10 @@
 from pathlib import Path
 
-from athena_knowledge_mcp.core.models import AwsAuthenticationType, ServerConfiguration
+from athena_knowledge_mcp.core.models import (
+    DEFAULT_S3_PREFIX,
+    AwsAuthenticationType,
+    ServerConfiguration,
+)
 from athena_knowledge_mcp.core.settings_store import SettingsStore
 
 
@@ -15,7 +19,7 @@ def test_save_and_load_settings(tmp_path: Path) -> None:
         query_results_s3_bucket="results-bucket",
         query_results_s3_prefix="athena/results",
         catalog_bucket="catalog-bucket",
-        catalog_prefix="catalog/root",
+        catalog_prefix="",
     )
 
     store.save(configuration)
@@ -25,3 +29,5 @@ def test_save_and_load_settings(tmp_path: Path) -> None:
     assert loaded is not None
     assert loaded.aws_region == "us-east-1"
     assert loaded.catalog_bucket == "catalog-bucket"
+    assert loaded.query_results_s3_prefix == "athena/results/"
+    assert loaded.catalog_prefix == DEFAULT_S3_PREFIX

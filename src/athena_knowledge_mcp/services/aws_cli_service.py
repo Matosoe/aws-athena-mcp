@@ -3,16 +3,10 @@ from __future__ import annotations
 import configparser
 import json
 import os
-import re
 import shutil
 import subprocess
-import time
-import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
-
-_URL_PATTERN = re.compile(r"https://[^\s]+")
-_DEVICE_CODE_PATTERN = re.compile(r"^[A-Z0-9]{4}(?:-[A-Z0-9]{4})+$")
 
 
 @dataclass(slots=True)
@@ -49,12 +43,58 @@ class AwsCliService:
         profile: str,
         timeout_seconds: int = 180,
     ) -> dict[str, object]:
-        """Run `aws sso login` for one profile and open the authorization URL."""
+        """Start `aws sso login` for one profile without blocking."""
         self._validate_profile(profile)
-        return self._run_sso_login_command(
-            profile=profile,
-            timeout_seconds=timeout_seconds,
-        )
+        del timeout_seconds
+
+        executable = self.aws_executable or shutil.which("aws") or "aws"
+        command = [executable, "sso", "login", "--profile", profile]
+
+        popen_kwargs: dict[str, object] = {
+            "stdin": subprocess.DEVNULL,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "cwd": str(Path.home()),
+        }
+
+        if os.name == "nt":
+            creationflags = 0
+            creationflags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            creationflags |= getattr(subprocess, "DETACHED_PROCESS", 0)
+            popen_kwargs["creationflags"] = creationflags
+        else:
+            popen_kwargs["start_new_session"] = True
+
+        try:
+            subprocess.Popen(command, **popen_kwargs)
+        except FileNotFoundError:
+            return {
+                "success": False,
+                "exit_code": None,
+                "stdout": "",
+                "stderr": "AWS CLI not found in PATH",
+                "command": " ".join(command),
+            }
+
+        return {
+            "success": True,
+            "exit_code": None,
+            "stdout": "",
+            "stderr": "",
+            "command": " ".join(command),
+            "status": "pending_user_confirmation",
+            "browser_login_started": True,
+            "requires_user_confirmation": True,
+            "message": (
+                "AWS SSO login was started for the selected profile. "
+                "A browser window should open so the user can approve login."
+            ),
+            "next_step": (
+                "Ask the user to confirm after approving the login in the "
+                "browser. Only continue with authenticated AWS tools after "
+                "that confirmation."
+            ),
+        }
 
     def sts_get_caller_identity(
         self,
@@ -114,118 +154,6 @@ class AwsCliService:
             "stdout": completed.stdout,
             "stderr": completed.stderr,
             "command": " ".join(command),
-        }
-
-    def _run_sso_login_command(
-        self,
-        profile: str,
-        timeout_seconds: int,
-    ) -> dict[str, object]:
-        executable = self.aws_executable or shutil.which("aws") or "aws"
-        command = [executable, "sso", "login", "--no-browser", "--profile", profile]
-        env = os.environ.copy()
-        env.setdefault("AWS_PAGER", "")
-
-        try:
-            process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                env=env,
-            )
-        except FileNotFoundError:
-            return {
-                "success": False,
-                "exit_code": None,
-                "stdout": "",
-                "stderr": "AWS CLI not found in PATH",
-                "command": " ".join(command),
-                "browser_opened": False,
-                "verification_url": None,
-                "user_code": None,
-                "profile": profile,
-            }
-
-        output_lines: list[str] = []
-        verification_url: str | None = None
-        user_code: str | None = None
-        browser_opened = False
-        deadline = time.monotonic() + timeout_seconds
-        awaiting_code = False
-
-        assert process.stdout is not None
-
-        while True:
-            if time.monotonic() > deadline:
-                process.kill()
-                remaining_output = process.communicate()[0]
-                if remaining_output:
-                    output_lines.append(remaining_output)
-                return {
-                    "success": False,
-                    "exit_code": None,
-                    "stdout": "".join(output_lines),
-                    "stderr": f"Command timed out after {timeout_seconds} seconds",
-                    "command": " ".join(command),
-                    "browser_opened": browser_opened,
-                    "verification_url": verification_url,
-                    "user_code": user_code,
-                    "profile": profile,
-                }
-
-            line = process.stdout.readline()
-            if line:
-                output_lines.append(line)
-                stripped_line = line.strip()
-
-                if verification_url is None:
-                    url_match = _URL_PATTERN.search(stripped_line)
-                    if url_match:
-                        verification_url = url_match.group(0).rstrip(".,)")
-
-                lower_line = stripped_line.lower()
-                if awaiting_code and user_code is None and _DEVICE_CODE_PATTERN.fullmatch(stripped_line):
-                    user_code = stripped_line
-                    awaiting_code = False
-                elif "enter the code" in lower_line:
-                    awaiting_code = True
-
-                if verification_url and not browser_opened:
-                    browser_opened = webbrowser.open(verification_url)
-            elif process.poll() is not None:
-                break
-            else:
-                time.sleep(0.1)
-
-        remaining_output = process.stdout.read()
-        if remaining_output:
-            output_lines.append(remaining_output)
-            if verification_url is None:
-                url_match = _URL_PATTERN.search(remaining_output)
-                if url_match:
-                    verification_url = url_match.group(0).rstrip(".,)")
-            if user_code is None:
-                for candidate_line in remaining_output.splitlines():
-                    stripped_line = candidate_line.strip()
-                    if _DEVICE_CODE_PATTERN.fullmatch(stripped_line):
-                        user_code = stripped_line
-                        break
-            if verification_url and not browser_opened:
-                browser_opened = webbrowser.open(verification_url)
-
-        return {
-            "success": process.returncode == 0,
-            "exit_code": process.returncode,
-            "stdout": "".join(output_lines),
-            "stderr": "",
-            "command": " ".join(command),
-            "browser_opened": browser_opened,
-            "verification_url": verification_url,
-            "user_code": user_code,
-            "profile": profile,
         }
 
     def _validate_profile(self, profile: str) -> None:

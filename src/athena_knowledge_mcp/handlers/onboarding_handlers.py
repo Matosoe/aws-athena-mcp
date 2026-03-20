@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from athena_knowledge_mcp.core.models import (
+    DEFAULT_S3_PREFIX,
     AwsAuthenticationType,
     AwsSecretMaterial,
     ServerConfiguration,
@@ -22,9 +23,9 @@ class OnboardingHandlers:
         athena_workgroup: str,
         default_database: str,
         query_results_s3_bucket: str,
-        query_results_s3_prefix: str,
         catalog_bucket: str,
-        catalog_prefix: str,
+        query_results_s3_prefix: str = DEFAULT_S3_PREFIX,
+        catalog_prefix: str = DEFAULT_S3_PREFIX,
         athena_catalog: str = "AwsDataCatalog",
         local_large_results_folder: str = "downloads",
         inline_result_max_bytes: int = 500000,
@@ -63,7 +64,24 @@ class OnboardingHandlers:
         return status.model_dump(mode="json")
 
     def get_server_configuration_status(self) -> dict[str, object]:
-        return self.onboarding_service.get_configuration_status().model_dump(mode="json")
+        return self.onboarding_service.get_configuration_status().model_dump(
+            mode="json"
+        )
+
+    def list_accessible_s3_buckets(self) -> dict[str, object]:
+        buckets = self.onboarding_service.list_accessible_s3_buckets()
+        return {
+            "buckets": buckets,
+            "recommended_prefix": DEFAULT_S3_PREFIX,
+            "requires_bucket_selection": True,
+            "message": (
+                "Mostre a lista de buckets e peca para o usuario escolher um."
+            ),
+            "next_step": (
+                f"Depois confirme o prefixo padrao {DEFAULT_S3_PREFIX}. So "
+                "solicite prefixo manual se o usuario quiser personalizar."
+            ),
+        }
 
     def update_server_configuration(
         self,
@@ -71,18 +89,29 @@ class OnboardingHandlers:
         **updates: object,
     ) -> dict[str, object]:
         secret_updates: dict[str, str | None] = {}
-        for key in ["aws_access_key_id", "aws_secret_access_key", "aws_session_token"]:
+        for key in [
+            "aws_access_key_id",
+            "aws_secret_access_key",
+            "aws_session_token",
+        ]:
             if key in updates:
                 value = updates.pop(key)
                 if value is None or isinstance(value, str):
                     secret_updates[key] = value
-        if "authentication_type" in updates and isinstance(updates["authentication_type"], str):
-            updates["authentication_type"] = AwsAuthenticationType(updates["authentication_type"])
+        if "authentication_type" in updates and isinstance(
+            updates["authentication_type"],
+            str,
+        ):
+            updates["authentication_type"] = AwsAuthenticationType(
+                updates["authentication_type"]
+            )
         if "local_large_results_folder" in updates and isinstance(
             updates["local_large_results_folder"],
             str,
         ):
-            updates["local_large_results_folder"] = Path(updates["local_large_results_folder"])
+            updates["local_large_results_folder"] = Path(
+                updates["local_large_results_folder"]
+            )
         status = self.onboarding_service.update_configuration(
             updates,
             secret_updates,
