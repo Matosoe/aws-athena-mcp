@@ -26,10 +26,11 @@ class _FakeAthenaClient:
         self.start_query_calls.append(kwargs)
         query_execution_id = f"query-{len(self.start_query_calls)}"
         query = str(kwargs["QueryString"])
-        if query.strip().lower().startswith("show create table"):
-            self._ddl_by_query_id[query_execution_id] = (
-                self._resolve_show_create_table(query)
-            )
+        try:
+            query_rows = self._resolve_query_rows(query)
+            self._rows_by_query_id[query_execution_id] = query_rows
+        except AssertionError:
+            pass
         return {"QueryExecutionId": query_execution_id}
 
     def get_query_execution(self, **kwargs: object) -> dict[str, object]:
@@ -38,7 +39,9 @@ class _FakeAthenaClient:
             "QueryExecution": {
                 "Status": {"State": "SUCCEEDED"},
                 "ResultConfiguration": {
-                    "OutputLocation": "s3://results-bucket/athena/results/query-1.csv"
+                    "OutputLocation": (
+                        "s3://results-bucket/athena/results/query-1.csv"
+                    )
                 },
                 "Statistics": {"EngineExecutionTimeInMillis": 12},
             }
@@ -47,7 +50,7 @@ class _FakeAthenaClient:
     def get_query_results(self, **kwargs: object) -> dict[str, object]:
         self.get_query_results_calls.append(kwargs)
         query_execution_id = str(kwargs["QueryExecutionId"])
-        if query_execution_id not in self._ddl_by_query_id:
+        if query_execution_id not in self._rows_by_query_id:
             return {
                 "ResultSet": {
                     "Rows": [
@@ -56,7 +59,7 @@ class _FakeAthenaClient:
                     ]
                 }
             }
-        ddl = self._ddl_by_query_id[query_execution_id]
+        rows = self._rows_by_query_id[query_execution_id]
         return {
             "ResultSet": {
                 "Rows": [{"Data": [{"VarCharValue": "value"}]}]
@@ -87,12 +90,14 @@ TBLPROPERTIES (
   'classification'='parquet'
 )"""]
         if normalized_query == "show create table pageviews":
-                        return ["""CREATE EXTERNAL TABLE `pageviews`(
+            return ["""CREATE EXTERNAL TABLE `pageviews`(
   `session_id` string,
   `path` string
 )
 STORED AS PARQUET"""]
-        raise AssertionError(f"Query inesperada no fake Athena client: {query}")
+        raise AssertionError(
+            f"Query inesperada no fake Athena client: {query}"
+        )
 
 
 def build_configuration(tmp_path: Path) -> ServerConfiguration:
