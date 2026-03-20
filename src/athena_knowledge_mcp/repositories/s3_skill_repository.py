@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from athena_knowledge_mcp.core.aws_errors import raise_if_aws_access_denied
+
 
 class S3SkillRepository:
     def __init__(
@@ -24,10 +26,14 @@ class S3SkillRepository:
 
         if self._s3_client is None:
             raise RuntimeError("S3 client nao configurado")
-        response = self._s3_client.get_object(
-            Bucket=self._bucket,
-            Key=self._skill_key(database_name, table_name),
-        )
+        try:
+            response = self._s3_client.get_object(
+                Bucket=self._bucket,
+                Key=self._skill_key(database_name, table_name),
+            )
+        except Exception as exc:
+            raise_if_aws_access_denied(exc, "S3")
+            raise
         return response["Body"].read().decode("utf-8")
 
     def save_skill(self, database_name: str, table_name: str, content_markdown: str) -> str:
@@ -41,11 +47,15 @@ class S3SkillRepository:
         key = self._skill_key(database_name, table_name)
         if self._s3_client is None:
             raise RuntimeError("S3 client nao configurado")
-        self._s3_client.put_object(
-            Bucket=self._bucket,
-            Key=key,
-            Body=content_markdown.encode("utf-8"),
-        )
+        try:
+            self._s3_client.put_object(
+                Bucket=self._bucket,
+                Key=key,
+                Body=content_markdown.encode("utf-8"),
+            )
+        except Exception as exc:
+            raise_if_aws_access_denied(exc, "S3")
+            raise
         return f"s3://{self._bucket}/{key}"
 
     def _skill_key(self, database_name: str, table_name: str) -> str:

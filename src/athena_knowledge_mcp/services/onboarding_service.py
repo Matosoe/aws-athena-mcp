@@ -9,6 +9,7 @@ from botocore.exceptions import (  # type: ignore[import-untyped]
     ProfileNotFound,
 )
 
+from athena_knowledge_mcp.core.aws_errors import raise_if_aws_access_denied
 from athena_knowledge_mcp.core.exceptions import InvalidConfigurationError
 from athena_knowledge_mcp.core.models import (
     DEFAULT_S3_PREFIX,
@@ -69,11 +70,7 @@ class OnboardingService:
             configuration.model_dump(mode="python")
         )
         validate_configuration(normalized_configuration, secrets)
-        self._validate_remote_access(
-            normalized_configuration,
-            secrets,
-            skip_aws_validation,
-        )
+        del skip_aws_validation
         self.config_repository.save_configuration(normalized_configuration)
         self.config_repository.save_secrets(secrets)
         return self.get_configuration_status()
@@ -106,7 +103,10 @@ class OnboardingService:
                 missing_fields.append(field_name)
         return missing_fields
 
-    def list_accessible_s3_buckets(self) -> list[str]:
+    def list_accessible_s3_buckets(
+        self,
+        raise_on_access_denied: bool = False,
+    ) -> list[str]:
         if self.aws_session_service is None:
             return []
 
@@ -122,8 +122,14 @@ class OnboardingService:
             ClientError,
             NoCredentialsError,
             ProfileNotFound,
-        ):
+        ) as exc:
+            if raise_on_access_denied:
+                raise_if_aws_access_denied(exc, "S3")
             return []
+        except Exception as exc:
+            if raise_on_access_denied:
+                raise_if_aws_access_denied(exc, "S3")
+            raise
 
     def _enrich_storage_guidance(
         self,
@@ -169,25 +175,3 @@ class OnboardingService:
             )
         return status
 
-    def _validate_remote_access(
-        self,
-        configuration: ServerConfiguration,
-        secrets: AwsSecretMaterial,
-        skip_aws_validation: bool,
-    ) -> None:
-        if skip_aws_validation or self.aws_session_service is None:
-            return
-
-        session = self.aws_session_service.build_session(
-            configuration,
-            secrets,
-        )
-        try:
-            session.client(
-                "sts",
-                region_name=configuration.aws_region,
-            ).get_caller_identity()
-        except Exception as exc:
-            raise InvalidConfigurationError(
-                f"Falha ao validar credenciais AWS: {exc}"
-            ) from exc

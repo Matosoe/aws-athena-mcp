@@ -1,3 +1,6 @@
+import pytest
+
+from athena_knowledge_mcp.core.exceptions import AwsAccessDeniedError
 from athena_knowledge_mcp.core.models import TableSkill
 from athena_knowledge_mcp.repositories.s3_catalog_repository import S3CatalogRepository
 from athena_knowledge_mcp.repositories.s3_skill_repository import S3SkillRepository
@@ -9,6 +12,18 @@ class _MissingCatalogClient:
     def get_object(self, **_: object) -> object:
         error = Exception("missing")
         error.response = {"Error": {"Code": "NoSuchKey"}}
+        raise error
+
+
+class _AccessDeniedCatalogClient:
+    def get_object(self, **_: object) -> object:
+        error = Exception("access denied")
+        error.response = {
+            "Error": {
+                "Code": "AccessDenied",
+                "Message": "Access denied for bucket",
+            }
+        }
         raise error
 
 
@@ -82,3 +97,19 @@ def test_catalog_list_tables_filters_by_database(tmp_path) -> None:
     tables = catalog_service.list_tables("analytics")
 
     assert [table.table_name for table in tables] == ["orders"]
+
+
+def test_catalog_load_entries_raises_login_guidance_on_access_denied() -> None:
+    repository = S3CatalogRepository(
+        bucket="catalog-bucket",
+        prefix="catalog-prefix",
+        s3_client=_AccessDeniedCatalogClient(),
+    )
+
+    with pytest.raises(AwsAccessDeniedError) as exc_info:
+        repository.load_entries()
+
+    assert str(exc_info.value) == (
+        "Acesso negado ao acessar o S3. "
+        "Faca login na AWS CLI para continuar."
+    )

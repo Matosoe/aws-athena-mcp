@@ -47,11 +47,8 @@ def build_app() -> FastMCP:
         local_root: Any | None = config.runtime_paths.state_dir / "catalog"
         s3_client: Any | None = None
         if configuration is not None:
-            try:
-                s3_client = aws_session_service.build_client("s3", configuration, secrets)
-                local_root = None
-            except Exception:
-                local_root = config.runtime_paths.state_dir / "catalog"
+            s3_client = aws_session_service.build_client("s3", configuration, secrets)
+            local_root = None
         repository = S3CatalogRepository(
             bucket=configuration.catalog_bucket if configuration else "local-catalog",
             prefix=configuration.catalog_prefix if configuration else "",
@@ -66,11 +63,8 @@ def build_app() -> FastMCP:
         local_root: Any | None = config.runtime_paths.state_dir / "skills"
         s3_client: Any | None = None
         if configuration is not None:
-            try:
-                s3_client = aws_session_service.build_client("s3", configuration, secrets)
-                local_root = None
-            except Exception:
-                local_root = config.runtime_paths.state_dir / "skills"
+            s3_client = aws_session_service.build_client("s3", configuration, secrets)
+            local_root = None
         repository = S3SkillRepository(
             bucket=configuration.catalog_bucket if configuration else "local-catalog",
             prefix=configuration.catalog_prefix if configuration else "",
@@ -85,12 +79,8 @@ def build_app() -> FastMCP:
         athena_client: Any | None = None
         s3_client: Any | None = None
         if configuration is not None:
-            try:
-                athena_client = aws_session_service.build_client("athena", configuration, secrets)
-                s3_client = aws_session_service.build_client("s3", configuration, secrets)
-            except Exception:
-                athena_client = None
-                s3_client = None
+            athena_client = aws_session_service.build_client("athena", configuration, secrets)
+            s3_client = aws_session_service.build_client("s3", configuration, secrets)
         return AthenaService(history_repository, athena_client=athena_client, s3_client=s3_client)
 
     def create_materialization_service(
@@ -100,10 +90,7 @@ def build_app() -> FastMCP:
         secrets = config_repository.load_secrets()
         s3_client: Any | None = None
         if configuration is not None:
-            try:
-                s3_client = aws_session_service.build_client("s3", configuration, secrets)
-            except Exception:
-                s3_client = None
+            s3_client = aws_session_service.build_client("s3", configuration, secrets)
         return ResultMaterializationService(athena_service, s3_client=s3_client)
 
     onboarding_handlers = OnboardingHandlers(onboarding_service)
@@ -359,40 +346,6 @@ def build_app() -> FastMCP:
     def list_aws_cli_profiles() -> list[str]:
         """List local AWS CLI profile names."""
         return aws_cli_handlers.list_aws_cli_profiles()
-
-    @mcp.tool(
-        name="aws_sso_login",
-        description=(
-            "Start `aws sso login` for a profile and let the user approve the "
-            "browser login before continuing with authenticated AWS tools."
-        ),
-    )
-    def aws_sso_login(
-        profile: str,
-        timeout_seconds: int = 180,
-    ) -> dict[str, object]:
-        """Run AWS CLI SSO login for one profile."""
-        return aws_cli_handlers.aws_sso_login(
-            profile=profile,
-            timeout_seconds=timeout_seconds,
-        )
-
-    @mcp.tool(
-        name="aws_sts_get_caller_identity",
-        description=(
-            "Run `aws sts get-caller-identity` using AWS CLI for the provided profile "
-            "or current default credentials."
-        ),
-    )
-    def aws_sts_get_caller_identity(
-        profile: str | None = None,
-        timeout_seconds: int = 60,
-    ) -> dict[str, object]:
-        """Read caller identity via AWS CLI."""
-        return aws_cli_handlers.aws_sts_get_caller_identity(
-            profile=profile,
-            timeout_seconds=timeout_seconds,
-        )
 
     @mcp.tool(
         name="execute_athena_query",

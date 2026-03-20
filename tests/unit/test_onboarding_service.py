@@ -2,13 +2,13 @@ from pathlib import Path
 
 import pytest
 
+from athena_knowledge_mcp.core.exceptions import AwsAccessDeniedError, ConfigurationRequiredError
 from athena_knowledge_mcp.core.models import (
     DEFAULT_S3_PREFIX,
     AwsAuthenticationType,
     AwsSecretMaterial,
     ServerConfiguration,
 )
-from athena_knowledge_mcp.core.exceptions import ConfigurationRequiredError
 from athena_knowledge_mcp.core.secrets_store import SecretsStore
 from athena_knowledge_mcp.core.settings_store import SettingsStore
 from athena_knowledge_mcp.repositories.local_config_repository import (
@@ -24,6 +24,18 @@ class _FakeAwsSessionService:
 
     def list_s3_buckets(self, *_args, **_kwargs) -> list[str]:
         return self._buckets
+
+
+class _AccessDeniedAwsSessionService:
+    def list_s3_buckets(self, *_args, **_kwargs) -> list[str]:
+        error = Exception("access denied")
+        error.response = {
+            "Error": {
+                "Code": "AccessDenied",
+                "Message": "Access denied for S3 list buckets",
+            }
+        }
+        raise error
 
 
 def test_initialize_configuration_persists_data(tmp_path: Path) -> None:
@@ -140,3 +152,22 @@ def test_update_configuration_normalizes_blank_storage_prefixes(
     assert saved_configuration is not None
     assert saved_configuration.query_results_s3_prefix == DEFAULT_S3_PREFIX
     assert saved_configuration.catalog_prefix == DEFAULT_S3_PREFIX
+
+
+def test_list_accessible_s3_buckets_raises_login_guidance_on_access_denied() -> None:
+    repository = LocalConfigRepository(
+        SettingsStore(Path("missing.json")),
+        SecretsStore(Path("missing-secrets.json")),
+    )
+    service = OnboardingService(
+        repository,
+        _AccessDeniedAwsSessionService(),
+    )
+
+    with pytest.raises(AwsAccessDeniedError) as exc_info:
+        service.list_accessible_s3_buckets(raise_on_access_denied=True)
+
+    assert str(exc_info.value) == (
+        "Acesso negado ao acessar o S3. "
+        "Faca login na AWS CLI para continuar."
+    )

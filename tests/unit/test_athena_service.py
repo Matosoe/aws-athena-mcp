@@ -1,6 +1,9 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
+from athena_knowledge_mcp.core.exceptions import AwsAccessDeniedError
 from athena_knowledge_mcp.core.models import (
     AthenaQueryRequest,
     AwsAuthenticationType,
@@ -98,6 +101,18 @@ STORED AS PARQUET"""]
         raise AssertionError(
             f"Query inesperada no fake Athena client: {query}"
         )
+
+
+class _AccessDeniedAthenaClient:
+    def start_query_execution(self, **_kwargs: object) -> dict[str, object]:
+        error = Exception("access denied")
+        error.response = {
+            "Error": {
+                "Code": "AccessDeniedException",
+                "Message": "User is not authorized to access Athena",
+            }
+        }
+        raise error
 
 
 def build_configuration(tmp_path: Path) -> ServerConfiguration:
@@ -324,6 +339,23 @@ def test_sync_database_to_catalog_creates_generated_skills(tmp_path: Path) -> No
     assert result["skipped_count"] == 0
     assert table_skill_service.catalog_service.get_entry("analytics", "orders") is not None
     assert (tmp_path / "skills" / "analytics" / "orders.md").exists()
+
+
+def test_list_databases_raises_login_guidance_on_access_denied(
+    tmp_path: Path,
+) -> None:
+    service = AthenaService(
+        QueryHistoryRepository(tmp_path / "query_history.jsonl"),
+        athena_client=_AccessDeniedAthenaClient(),
+    )
+
+    with pytest.raises(AwsAccessDeniedError) as exc_info:
+        service.list_databases(build_configuration(tmp_path))
+
+    assert str(exc_info.value) == (
+        "Acesso negado ao acessar o Athena. "
+        "Faca login na AWS CLI para continuar."
+    )
 
 
 def test_sync_database_to_catalog_handles_tables_without_tblproperties(tmp_path: Path) -> None:

@@ -52,3 +52,13 @@ class CatalogEntryNotFoundError(AthenaKnowledgeError):
 
 class QueryExecutionError(AthenaKnowledgeError):
     """Erro de execucao ou falha no Athena."""
+
+
+class AwsAccessDeniedError(AthenaKnowledgeError):
+    """Erro retornado quando Athena ou S3 negam acesso ou faltam credenciais."""
+
+    def __init__(self, service_name: str) -> None:
+        super().__init__(
+            f"Acesso negado ao acessar o {service_name}. "
+            "Faca login na AWS CLI para continuar."
+        )

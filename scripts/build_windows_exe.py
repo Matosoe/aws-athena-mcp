@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import re
+from datetime import datetime
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import tomllib
@@ -36,6 +37,17 @@ def is_supported_python(args: list[str]) -> bool:
     return completed.returncode == 0
 
 
+def remove_if_exists(path: Path) -> bool:
+    if not path.exists():
+        return True
+    try:
+        path.unlink()
+    except PermissionError:
+        print(f"Erro: arquivo em uso, nao foi possivel remover: {path}")
+        return False
+    return True
+
+
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
     python_cmd = str(Path(sys.executable))
@@ -68,10 +80,6 @@ def main() -> int:
 
     project_data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
     project_version = str(project_data["project"]["version"])
-    safe_version = re.sub(r"[^0-9A-Za-z\.-]", "-", project_version)
-    build_timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    versioned_exe_name = f"aws-athena-mcp-v{safe_version}-{build_timestamp}.exe"
-
     print(f"Build version: {project_version}")
 
     # helper para invocar o comando python com args base opcionais
