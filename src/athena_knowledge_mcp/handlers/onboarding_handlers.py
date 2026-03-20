@@ -21,9 +21,10 @@ class OnboardingHandlers:
         authentication_type: str,
         aws_region: str,
         athena_workgroup: str,
-        default_database: str,
         query_results_s3_bucket: str,
         catalog_bucket: str,
+        athena_databases: list[str] | None = None,
+        default_database: str | None = None,
         query_results_s3_prefix: str = DEFAULT_S3_PREFIX,
         catalog_prefix: str = DEFAULT_S3_PREFIX,
         athena_catalog: str = "AwsDataCatalog",
@@ -42,6 +43,7 @@ class OnboardingHandlers:
             aws_profile=aws_profile,
             athena_workgroup=athena_workgroup,
             athena_catalog=athena_catalog,
+            athena_databases=athena_databases or [],
             default_database=default_database,
             query_results_s3_bucket=query_results_s3_bucket,
             query_results_s3_prefix=query_results_s3_prefix,
@@ -75,11 +77,14 @@ class OnboardingHandlers:
             "recommended_prefix": DEFAULT_S3_PREFIX,
             "requires_bucket_selection": True,
             "message": (
-                "Mostre a lista de buckets e peca para o usuario escolher um."
+                "Mostre a lista de buckets e peca para o usuario escolher um. "
+                "No onboarding, faca uma pergunta por vez."
             ),
             "next_step": (
                 f"Depois confirme o prefixo padrao {DEFAULT_S3_PREFIX}. So "
-                "solicite prefixo manual se o usuario quiser personalizar."
+                "solicite prefixo manual se o usuario quiser personalizar. "
+                "Nao junte regiao, workgroup e databases na mesma pergunta e "
+                "nao exija database padrao."
             ),
         }
 

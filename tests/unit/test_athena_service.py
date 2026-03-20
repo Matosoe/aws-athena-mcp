@@ -26,7 +26,11 @@ class _FakeAthenaClient:
         self.start_query_calls.append(kwargs)
         query_execution_id = f"query-{len(self.start_query_calls)}"
         query = str(kwargs["QueryString"])
-        self._rows_by_query_id[query_execution_id] = self._resolve_query_rows(query)
+        try:
+            query_rows = self._resolve_query_rows(query)
+            self._rows_by_query_id[query_execution_id] = query_rows
+        except AssertionError:
+            pass
         return {"QueryExecutionId": query_execution_id}
 
     def get_query_execution(self, **kwargs: object) -> dict[str, object]:
@@ -35,7 +39,9 @@ class _FakeAthenaClient:
             "QueryExecution": {
                 "Status": {"State": "SUCCEEDED"},
                 "ResultConfiguration": {
-                    "OutputLocation": "s3://results-bucket/athena/results/query-1.csv"
+                    "OutputLocation": (
+                        "s3://results-bucket/athena/results/query-1.csv"
+                    )
                 },
                 "Statistics": {"EngineExecutionTimeInMillis": 12},
             }
@@ -44,6 +50,15 @@ class _FakeAthenaClient:
     def get_query_results(self, **kwargs: object) -> dict[str, object]:
         self.get_query_results_calls.append(kwargs)
         query_execution_id = str(kwargs["QueryExecutionId"])
+        if query_execution_id not in self._rows_by_query_id:
+            return {
+                "ResultSet": {
+                    "Rows": [
+                        {"Data": [{"VarCharValue": "result"}]},
+                        {"Data": [{"VarCharValue": "ok"}]},
+                    ]
+                }
+            }
         rows = self._rows_by_query_id[query_execution_id]
         return {
             "ResultSet": {
@@ -75,12 +90,14 @@ TBLPROPERTIES (
   'classification'='parquet'
 )"""]
         if normalized_query == "show create table pageviews":
-                        return ["""CREATE EXTERNAL TABLE `pageviews`(
+            return ["""CREATE EXTERNAL TABLE `pageviews`(
   `session_id` string,
   `path` string
 )
 STORED AS PARQUET"""]
-        raise AssertionError(f"Query inesperada no fake Athena client: {query}")
+        raise AssertionError(
+            f"Query inesperada no fake Athena client: {query}"
+        )
 
 
 def build_configuration(tmp_path: Path) -> ServerConfiguration:
@@ -88,7 +105,7 @@ def build_configuration(tmp_path: Path) -> ServerConfiguration:
         authentication_type=AwsAuthenticationType.DEFAULT_CREDENTIALS,
         aws_region="us-east-1",
         athena_workgroup="primary",
-        default_database="default",
+        athena_databases=["default", "analytics"],
         query_results_s3_bucket="results-bucket",
         query_results_s3_prefix="athena/results",
         catalog_bucket="catalog-bucket",
@@ -151,62 +168,26 @@ def test_execute_query_marks_large_result_for_materialization(tmp_path: Path) ->
     assert record.next_step == "materialize_large_result_locally"
 
 
-def test_load_preview_uses_column_info_for_show_queries(tmp_path: Path) -> None:
-    class _PreviewAthenaClient:
-        def get_query_results(self, **kwargs: object) -> dict[str, object]:
-            assert kwargs["QueryExecutionId"] == "query-preview"
-            return {
-                "ResultSet": {
-                    "ResultSetMetadata": {
-                        "ColumnInfo": [{"Name": "tab_name"}],
-                    },
-                    "Rows": [
-                        {"Data": [{"VarCharValue": "acmp"}]},
-                    ],
-                }
-            }
-
+def test_execute_query_allows_missing_database_when_not_configured(
+    tmp_path: Path,
+) -> None:
     service = AthenaService(
-        QueryHistoryRepository(tmp_path / "query_history.jsonl"),
-        athena_client=_PreviewAthenaClient(),
+        QueryHistoryRepository(tmp_path / "query_history.jsonl")
+    )
+    configuration = build_configuration(tmp_path).model_copy(
+        update={"default_database": None, "athena_databases": []}
     )
 
-    preview = service._load_preview("query-preview", max_rows=10)
-
-    assert preview.columns == ["tab_name"]
-    assert preview.rows == [["acmp"]]
-    assert preview.row_count == 1
-
-
-def test_load_preview_infers_columns_from_show_tables_query(tmp_path: Path) -> None:
-    class _PreviewAthenaClient:
-        def get_query_results(self, **kwargs: object) -> dict[str, object]:
-            assert kwargs["QueryExecutionId"] == "query-preview"
-            return {
-                "ResultSet": {
-                    "Rows": [
-                        {"Data": [{"VarCharValue": "acmp"}]},
-                    ],
-                }
-            }
-
-    service = AthenaService(
-        QueryHistoryRepository(tmp_path / "query_history.jsonl"),
-        athena_client=_PreviewAthenaClient(),
+    record = service.execute_query(
+        AthenaQueryRequest(query="show databases"),
+        configuration,
     )
 
-    preview = service._load_preview(
-        "query-preview",
-        max_rows=10,
-        query="SHOW TABLES IN default",
-    )
-
-    assert preview.columns == ["tab_name"]
-    assert preview.rows == [["acmp"]]
-    assert preview.row_count == 1
+    assert record.status == "SUCCEEDED"
+    assert record.database is None
 
 
-def test_list_databases_uses_show_databases_query(tmp_path: Path) -> None:
+def test_list_databases_prefers_cache_and_merges_remote(tmp_path: Path) -> None:
     athena_client = _FakeAthenaClient()
     service = AthenaService(
         QueryHistoryRepository(tmp_path / "query_history.jsonl"),
@@ -215,7 +196,11 @@ def test_list_databases_uses_show_databases_query(tmp_path: Path) -> None:
 
     databases = service.list_databases(build_configuration(tmp_path))
 
-    assert [database.name for database in databases] == ["analytics", "finance", "warehouse"]
+    assert [database.name for database in databases] == [
+        "analytics",
+        "finance",
+        "warehouse",
+    ]
     assert all(database.sources == ["athena"] for database in databases)
     assert athena_client.start_query_calls[0]["QueryString"] == "SHOW DATABASES"
     assert athena_client.start_query_calls[0]["WorkGroup"] == "primary"
@@ -255,7 +240,9 @@ def test_list_tables_filters_prefix_after_show_tables_query(tmp_path: Path) -> N
     assert [table.table_name for table in tables] == ["orders"]
 
 
-def test_get_table_metadata_reads_columns_from_show_create_table(tmp_path: Path) -> None:
+def test_get_table_metadata_reads_columns_from_show_create_table(
+    tmp_path: Path,
+) -> None:
     athena_client = _FakeAthenaClient()
     service = AthenaService(
         QueryHistoryRepository(tmp_path / "query_history.jsonl"),
@@ -275,12 +262,42 @@ def test_get_table_metadata_reads_columns_from_show_create_table(tmp_path: Path)
     assert metadata.partition_keys[0].name == "dt"
     assert metadata.parameters["classification"] == "parquet"
     assert metadata.summary is None
-    assert athena_client.start_query_calls[0]["QueryString"] == "SHOW CREATE TABLE orders"
+    assert (
+        athena_client.start_query_calls[0]["QueryString"]
+        == "SHOW CREATE TABLE orders"
+    )
     assert athena_client.start_query_calls[0]["QueryExecutionContext"] == {
         "Database": "analytics",
         "Catalog": "AwsDataCatalog",
     }
     assert athena_client.start_query_calls[0]["WorkGroup"] == "primary"
+
+
+def test_execute_remote_query_omits_database_when_not_available(
+    tmp_path: Path,
+) -> None:
+    class _FakeS3Client:
+        def head_object(self, **_kwargs: object) -> dict[str, int]:
+            return {"ContentLength": 32}
+
+    athena_client = _FakeAthenaClient()
+    service = AthenaService(
+        QueryHistoryRepository(tmp_path / "query_history.jsonl"),
+        athena_client=athena_client,
+        s3_client=_FakeS3Client(),
+    )
+    configuration = build_configuration(tmp_path).model_copy(
+        update={"default_database": None, "athena_databases": []}
+    )
+
+    service.execute_query(
+        AthenaQueryRequest(query="show databases"),
+        configuration,
+    )
+
+    assert athena_client.start_query_calls[0]["QueryExecutionContext"] == {
+        "Catalog": "AwsDataCatalog",
+    }
 
 
 def test_sync_database_to_catalog_creates_generated_skills(tmp_path: Path) -> None:

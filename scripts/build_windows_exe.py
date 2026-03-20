@@ -7,65 +7,59 @@ import sys
 import tomllib
 
 
+SUPPORTED_PYTHON_VERSIONS = {(3, 11), (3, 12)}
+
+
 def run_command(args: list[str]) -> None:
     completed = subprocess.run(args, check=False)
     if completed.returncode != 0:
         raise SystemExit(completed.returncode)
 
 
-def command_works(args: list[str]) -> bool:
+def is_supported_python(args: list[str]) -> bool:
+    version_check = "\n".join(
+        [
+            "import sys",
+            "raise SystemExit(",
+            "    0 if sys.version_info[:2] in ((3, 11), (3, 12)) else 1",
+            ")",
+        ]
+    )
     completed = subprocess.run(
-        args,
+        [
+            *args,
+            "-c",
+            version_check,
+        ],
         check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
     )
     return completed.returncode == 0
 
 
-def remove_if_exists(path: Path) -> bool:
-    if not path.exists():
-        return True
-
-    try:
-        path.unlink()
-    except PermissionError:
-        print(
-            "Erro: nao foi possivel substituir o artefato porque ele esta em uso: "
-            f"{path}"
-        )
-        return False
-
-    return True
-
-
-def resolve_python_command(explicit_python: str | None) -> tuple[str, list[str]]:
-    if explicit_python:
-        python_exe = Path(explicit_python)
-        if python_exe.exists():
-            return str(python_exe), []
-
-    candidates = [
-        ("py", ["-3.11"]),
-        ("py", []),
-        ("python", []),
-    ]
-
-    for command, base_args in candidates:
-        if not shutil.which(command):
-            continue
-        if command_works([command, *base_args, "--version"]):
-            return command, base_args
-
-    raise SystemExit(
-        "Erro: nenhum interpretador Python compativel foi encontrado no PATH."
-    )
-
-
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
-    python_arg = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else None
-    python_cmd, python_base_args = resolve_python_command(python_arg)
+    python_cmd = str(Path(sys.executable))
+    python_base_args: list[str] = []
+
+    # Preferencia: argumento explicito. Sem argumento, reutilize o
+    # interpretador atual, o que permite que a task do VS Code use a .venv.
+    if len(sys.argv) > 1 and sys.argv[1]:
+        python_exe = Path(sys.argv[1])
+    else:
+        python_exe = Path(sys.executable)
+
+    if python_exe and python_exe.exists():
+        python_cmd = str(python_exe)
+        python_base_args = []
+
+    # python_cmd e python_base_args definem como chamar o python
+    if not is_supported_python([python_cmd, *python_base_args]):
+        print(
+            "Erro: o build exige Python 3.11 ou 3.12. "
+            "Recrie a .venv com scripts\\bootstrap_env.cmd "
+            "ou bash scripts/bootstrap_env.sh."
+        )
+        return 1
 
     pyproject_path = root / "pyproject.toml"
     if not pyproject_path.exists():
@@ -74,6 +68,9 @@ def main() -> int:
 
     project_data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
     project_version = str(project_data["project"]["version"])
+    safe_version = re.sub(r"[^0-9A-Za-z\.-]", "-", project_version)
+    build_timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    versioned_exe_name = f"aws-athena-mcp-v{safe_version}-{build_timestamp}.exe"
 
     print(f"Build version: {project_version}")
 
@@ -89,10 +86,7 @@ def main() -> int:
     default_exe = dist_dir / "aws-athena-mcp.exe"
     latest_exe = dist_dir / "aws-athena-mcp-latest.exe"
     if not default_exe.exists():
-        print(
-            "Erro: build concluido, mas artefato esperado nao foi encontrado: "
-            f"{default_exe}"
-        )
+        print("Erro: build concluido, mas artefato esperado nao foi encontrado: " f"{default_exe}")
         return 1
 
     if not remove_if_exists(latest_exe):

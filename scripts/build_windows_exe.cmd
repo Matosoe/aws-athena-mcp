@@ -1,13 +1,10 @@
 @echo off
 setlocal EnableExtensions
 
-set "SCRIPT_DIR=%~dp0"
-set "PYTHON_EXE=%~1"
+cd /d "%~dp0.."
 
-if "%PYTHON_EXE%"=="" (
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%build_windows_exe.ps1"
-) else (
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%build_windows_exe.ps1" -PythonExecutable "%PYTHON_EXE%"
-)
+call "scripts\bootstrap_env.cmd" --venv-only
+if errorlevel 1 exit /b 1
 
-exit /b %ERRORLEVEL%
+".venv\Scripts\python.exe" "scripts\build_windows_exe.py"
+exit /b %errorlevel%

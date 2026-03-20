@@ -26,7 +26,6 @@ REQUIRED_FIELDS = [
     "authentication_type",
     "aws_region",
     "athena_workgroup",
-    "default_database",
     "query_results_s3_bucket",
     "query_results_s3_prefix",
     "catalog_bucket",
@@ -150,15 +149,23 @@ class OnboardingService:
 
         if status.available_s3_buckets:
             status.next_step = (
-                "Pergunte qual bucket da lista o usuario quer usar. Depois, "
-                f"confirme o prefixo padrao {DEFAULT_S3_PREFIX} e so peca um "
-                "prefixo digitado manualmente se ele quiser personalizar."
+                "Pergunte uma informacao por vez. Primeiro, pergunte qual "
+                "bucket da lista o usuario quer usar. Depois, confirme o "
+                f"prefixo padrao {DEFAULT_S3_PREFIX} e so peca um prefixo "
+                "digitado manualmente se ele quiser personalizar. "
+                "Para Athena, "
+                "nao junte regiao, workgroup e databases na mesma pergunta. "
+                "Pergunte separadamente e nao exija database padrao; se "
+                "quiser registrar contexto, peca uma lista opcional de "
+                "databases em pergunta propria."
             )
         else:
             status.next_step = (
                 "Defina as credenciais AWS necessarias para listar buckets. "
                 f"Depois disso, ofereca o prefixo padrao {DEFAULT_S3_PREFIX} "
-                "e so peca um prefixo manual se o usuario quiser personalizar."
+                "e so peca um prefixo manual se o usuario quiser "
+                "personalizar. "
+                "Pergunte uma informacao por vez e nao exija database padrao."
             )
         return status
 

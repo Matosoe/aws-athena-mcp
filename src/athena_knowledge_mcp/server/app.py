@@ -118,8 +118,16 @@ def build_app() -> FastMCP:
     )
     storage_onboarding_note = (
         " If the storage bucket or prefix is still undefined, first call "
-        "`list_accessible_s3_buckets`, ask the user to choose one of the returned buckets, "
-        f"and suggest the default prefix `{DEFAULT_S3_PREFIX}` unless they request a custom prefix."
+        "`list_accessible_s3_buckets`, ask the user to choose one of the "
+        "returned buckets, and suggest the default prefix "
+        f"`{DEFAULT_S3_PREFIX}` unless they request a custom prefix."
+    )
+    interactive_onboarding_note = (
+        " For interactive onboarding, ask one question at a time. "
+        "Do not combine AWS region, Athena workgroup, and databases "
+        "into a single prompt. Do not require a default database; "
+        "if useful, ask for an optional list of databases in a "
+        "separate question."
     )
 
     mcp = FastMCP("AWS Athena Knowledge MCP", json_response=True)
@@ -127,17 +135,20 @@ def build_app() -> FastMCP:
     @mcp.tool(
         name="initialize_server_configuration",
         description=(
-            "Persist the initial AWS and Athena configuration used by the server."
+            "Persist the initial AWS and Athena configuration used by the "
+            "server."
             + storage_onboarding_note
+            + interactive_onboarding_note
         ),
     )
     def initialize_server_configuration(
         authentication_type: str,
         aws_region: str,
         athena_workgroup: str,
-        default_database: str,
         query_results_s3_bucket: str,
         catalog_bucket: str,
+        athena_databases: list[str] | None = None,
+        default_database: str | None = None,
         query_results_s3_prefix: str = DEFAULT_S3_PREFIX,
         catalog_prefix: str = DEFAULT_S3_PREFIX,
         athena_catalog: str = "AwsDataCatalog",
@@ -158,8 +169,9 @@ def build_app() -> FastMCP:
             authentication_type=authentication_type,
             aws_region=aws_region,
             athena_workgroup=athena_workgroup,
-            default_database=default_database,
             query_results_s3_bucket=query_results_s3_bucket,
+            athena_databases=athena_databases,
+            default_database=default_database,
             query_results_s3_prefix=query_results_s3_prefix,
             catalog_bucket=catalog_bucket,
             catalog_prefix=catalog_prefix,
@@ -204,12 +216,14 @@ def build_app() -> FastMCP:
         description=(
             "Update one or more persisted server configuration fields."
             + storage_onboarding_note
+            + interactive_onboarding_note
         ),
     )
     def update_server_configuration(
         authentication_type: str | None = None,
         aws_region: str | None = None,
         athena_workgroup: str | None = None,
+        athena_databases: list[str] | None = None,
         default_database: str | None = None,
         query_results_s3_bucket: str | None = None,
         query_results_s3_prefix: str | None = None,
@@ -235,6 +249,7 @@ def build_app() -> FastMCP:
                 "authentication_type": authentication_type,
                 "aws_region": aws_region,
                 "athena_workgroup": athena_workgroup,
+                "athena_databases": athena_databases,
                 "default_database": default_database,
                 "query_results_s3_bucket": query_results_s3_bucket,
                 "query_results_s3_prefix": query_results_s3_prefix,

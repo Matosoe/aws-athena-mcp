@@ -184,6 +184,7 @@ class AthenaService:
         configuration: ServerConfiguration,
     ) -> QueryExecutionRecord:
         query_execution_id = f"stub-{uuid4().hex[:12]}"
+        database = self._resolve_database(request, configuration)
         lower_query = request.query.lower()
         result_size_bytes = 2_000_000 if "large_result" in lower_query else 256
         preview = None
@@ -202,12 +203,16 @@ class AthenaService:
                     query_execution_id=query_execution_id,
                     status="SUCCEEDED",
                     submitted_query=request.query,
-                    database=request.database or configuration.default_database,
+                    database=database,
                     catalog=request.catalog or configuration.athena_catalog,
-                    workgroup=request.workgroup or configuration.athena_workgroup,
+                    workgroup=(
+                        request.workgroup
+                        or configuration.athena_workgroup
+                    ),
                     output_location=(
                         f"s3://{configuration.query_results_s3_bucket}/"
-                        f"{configuration.query_results_s3_prefix.strip('/')}/{query_execution_id}.csv"
+                        f"{configuration.query_results_s3_prefix.strip('/')}"
+                        f"/{query_execution_id}.csv"
                     ),
                     result_size_bytes=result_size_bytes,
                 )
@@ -217,12 +222,13 @@ class AthenaService:
             query_execution_id=query_execution_id,
             status="SUCCEEDED",
             submitted_query=request.query,
-            database=request.database or configuration.default_database,
+            database=database,
             catalog=request.catalog or configuration.athena_catalog,
             workgroup=request.workgroup or configuration.athena_workgroup,
             output_location=(
                 f"s3://{configuration.query_results_s3_bucket}/"
-                f"{configuration.query_results_s3_prefix.strip('/')}/{query_execution_id}.csv"
+                f"{configuration.query_results_s3_prefix.strip('/')}"
+                f"/{query_execution_id}.csv"
             ),
             result_size_bytes=result_size_bytes,
             completion_reason=completion_reason,
@@ -237,12 +243,15 @@ class AthenaService:
         configuration: ServerConfiguration,
     ) -> QueryExecutionRecord:
         assert self.athena_client is not None
+        database = self._resolve_database(request, configuration)
+        query_context = {
+            "Catalog": request.catalog or configuration.athena_catalog,
+        }
+        if database:
+            query_context["Database"] = database
         response: dict[str, Any] = self.athena_client.start_query_execution(
             QueryString=request.query,
-            QueryExecutionContext={
-                "Database": request.database or configuration.default_database,
-                "Catalog": request.catalog or configuration.athena_catalog,
-            },
+            QueryExecutionContext=query_context,
             WorkGroup=request.workgroup or configuration.athena_workgroup,
             ResultConfiguration={
                 "OutputLocation": (
@@ -258,15 +267,26 @@ class AthenaService:
         )
         query_execution = status_response["QueryExecution"]
         status = query_execution["Status"]["State"]
-        output_location = query_execution["ResultConfiguration"].get("OutputLocation")
-        execution_time_ms = query_execution.get("Statistics", {}).get("EngineExecutionTimeInMillis")
+        output_location = query_execution["ResultConfiguration"].get(
+            "OutputLocation"
+        )
+        execution_time_ms = query_execution.get(
+            "Statistics", {}
+        ).get("EngineExecutionTimeInMillis")
 
         if status != "SUCCEEDED":
             raise QueryExecutionError(
-                query_execution["Status"].get("StateChangeReason", "Falha na query")
+                query_execution["Status"].get(
+                    "StateChangeReason",
+                    "Falha na query",
+                )
             )
 
-        result_size_bytes = self._head_result_size(output_location) if output_location else None
+        result_size_bytes = (
+            self._head_result_size(output_location)
+            if output_location
+            else None
+        )
         preview = None
         next_step = None
         completion_reason = None
@@ -277,7 +297,6 @@ class AthenaService:
             preview = self._load_preview(
                 query_execution_id,
                 configuration.inline_result_max_rows,
-                query=request.query,
             )
         else:
             next_step = "materialize_large_result_locally"
@@ -286,9 +305,12 @@ class AthenaService:
                     query_execution_id=query_execution_id,
                     status=status,
                     submitted_query=request.query,
-                    database=request.database or configuration.default_database,
+                    database=database,
                     catalog=request.catalog or configuration.athena_catalog,
-                    workgroup=request.workgroup or configuration.athena_workgroup,
+                    workgroup=(
+                        request.workgroup
+                        or configuration.athena_workgroup
+                    ),
                     output_location=output_location,
                     result_size_bytes=result_size_bytes,
                 )
@@ -298,7 +320,7 @@ class AthenaService:
             query_execution_id=query_execution_id,
             status=status,
             submitted_query=request.query,
-            database=request.database or configuration.default_database,
+            database=database,
             catalog=request.catalog or configuration.athena_catalog,
             workgroup=request.workgroup or configuration.athena_workgroup,
             output_location=output_location,
@@ -308,6 +330,20 @@ class AthenaService:
             preview=preview,
             next_step=next_step,
         )
+
+    def _resolve_database(
+        self,
+        request: AthenaQueryRequest,
+        configuration: ServerConfiguration,
+    ) -> str | None:
+        if request.database and request.database.strip():
+            return request.database.strip()
+        if (
+            configuration.default_database
+            and configuration.default_database.strip()
+        ):
+            return configuration.default_database.strip()
+        return None
 
     def _wait_for_completion(
         self,

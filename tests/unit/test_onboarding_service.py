@@ -36,7 +36,7 @@ def test_initialize_configuration_persists_data(tmp_path: Path) -> None:
         authentication_type=AwsAuthenticationType.DEFAULT_CREDENTIALS,
         aws_region="us-east-1",
         athena_workgroup="primary",
-        default_database="default",
+        athena_databases=["db_conceito_athena", "db_conceito_relacional"],
         query_results_s3_bucket="results-bucket",
         query_results_s3_prefix="athena/results",
         catalog_bucket="catalog-bucket",
@@ -76,6 +76,8 @@ def test_get_configuration_status_when_missing() -> None:
     assert status.next_step is not None
     assert "bucket da lista" in status.next_step
     assert DEFAULT_S3_PREFIX in status.next_step
+    assert "Pergunte uma informacao por vez" in status.next_step
+    assert "nao exija database padrao" in status.next_step
 
 
 def test_require_configuration_returns_direct_storage_guidance() -> None:
@@ -111,7 +113,6 @@ def test_update_configuration_normalizes_blank_storage_prefixes(
         authentication_type=AwsAuthenticationType.DEFAULT_CREDENTIALS,
         aws_region="us-east-1",
         athena_workgroup="primary",
-        default_database="default",
         query_results_s3_bucket="results-bucket",
         query_results_s3_prefix="athena/results",
         catalog_bucket="catalog-bucket",

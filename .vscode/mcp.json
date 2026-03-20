@@ -1,8 +1,8 @@
 {
 	"servers": {
-		"Athena": {
+		"athena": {
 			"type": "stdio",
-			"command": "C:\\projetos\\aws-athena-mcp\\dist\\aws-athena-mcp-latest.exe",
+			"command": "C:\\Projetos\\aws-athena-mcp\\dist\\aws-athena-mcp-latest.exe",
 			"args": []
 		}
 	},
