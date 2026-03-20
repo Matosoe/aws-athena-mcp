@@ -84,8 +84,7 @@ No VS Code, a task `Build MCP EXE` usa esse mesmo wrapper automaticamente. Em Gi
 
 O build gera:
 
-- binario versionado em `dist/aws-athena-mcp-v<versao>-<yyyymmdd-HHMMSS>.exe`;
-- alias estavel em `dist/aws-athena-mcp-latest.exe`;
+- executavel estavel em `dist/aws-athena-mcp-latest.exe`;
 - metadados do ultimo build em `dist/LATEST_BUILD.txt`.
 
 Politica completa de versionamento: `docs/versionamento.md`.
@@ -295,13 +294,13 @@ anyio.run(main)
 Para reduzir atrito no fluxo de login SSO, o servidor expoe tools especificas da AWS CLI (sem execucao generica de shell):
 
 - `list_aws_cli_profiles`: lista perfis encontrados em `~/.aws/config` e `~/.aws/credentials`.
-- `aws_sso_login`: executa `aws sso login --profile <profile>`.
+- `aws_sso_login`: inicia `aws sso login --profile <profile>` sem bloquear a tool e orienta o agente a aguardar a confirmacao do usuario apos a aprovacao no navegador.
 - `aws_sts_get_caller_identity`: valida a sessao ativa com `aws sts get-caller-identity`.
 
 Fluxo recomendado para perfil SSO:
 
 1. Chamar `list_aws_cli_profiles` para escolher o profile.
-2. Chamar `aws_sso_login` com esse profile.
+2. Chamar `aws_sso_login` com esse profile e aguardar o usuario concluir a aprovacao no navegador.
 3. Chamar `aws_sts_get_caller_identity` para confirmar identidade e conta.
 4. Usar `update_server_configuration` com `authentication_type="profile"` e `aws_profile="<profile>"`.
 

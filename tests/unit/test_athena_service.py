@@ -17,33 +17,10 @@ from athena_knowledge_mcp.services.table_skill_service import TableSkillService
 
 class _FakeAthenaClient:
     def __init__(self) -> None:
-        self.list_database_calls: list[dict[str, object]] = []
-        self.list_table_calls: list[dict[str, object]] = []
         self.start_query_calls: list[dict[str, object]] = []
         self.get_query_execution_calls: list[dict[str, object]] = []
         self.get_query_results_calls: list[dict[str, object]] = []
-        self._ddl_by_query_id: dict[str, str] = {}
-
-    def list_databases(self, **kwargs: object) -> dict[str, object]:
-        self.list_database_calls.append(kwargs)
-        if kwargs.get("NextToken") == "page-2":
-            return {"DatabaseList": [{"Name": "warehouse"}]}
-        return {
-            "DatabaseList": [{"Name": "analytics"}, {"Name": "finance"}],
-            "NextToken": "page-2",
-        }
-
-    def list_table_metadata(self, **kwargs: object) -> dict[str, object]:
-        self.list_table_calls.append(kwargs)
-        database_name = kwargs["DatabaseName"]
-        if database_name == "analytics":
-            return {
-                "TableMetadataList": [
-                    {"Name": "orders"},
-                    {"Name": "pageviews"},
-                ]
-            }
-        return {"TableMetadataList": []}
+        self._rows_by_query_id: dict[str, list[str]] = {}
 
     def start_query_execution(self, **kwargs: object) -> dict[str, object]:
         self.start_query_calls.append(kwargs)
@@ -82,17 +59,21 @@ class _FakeAthenaClient:
         ddl = self._ddl_by_query_id[query_execution_id]
         return {
             "ResultSet": {
-                "Rows": [
-                    {"Data": [{"VarCharValue": "createtab_stmt"}]},
-                    {"Data": [{"VarCharValue": ddl}]},
-                ]
+                "Rows": [{"Data": [{"VarCharValue": "value"}]}]
+                + [{"Data": [{"VarCharValue": row}]} for row in rows]
             }
         }
 
-    def _resolve_show_create_table(self, query: str) -> str:
+    def _resolve_query_rows(self, query: str) -> list[str]:
         normalized_query = " ".join(query.strip().split()).lower()
+        if normalized_query == "show databases":
+            return ["analytics", "finance", "warehouse"]
+        if normalized_query == "show tables in analytics":
+            return ["orders", "pageviews"]
+        if normalized_query == "show tables in finance":
+            return []
         if normalized_query == "show create table orders":
-            return """CREATE EXTERNAL TABLE `orders`(
+            return ["""CREATE EXTERNAL TABLE `orders`(
   `order_id` bigint,
   `status` string COMMENT 'status atual',
   `items` array<struct<sku:string,qty:int>>
@@ -104,13 +85,13 @@ STORED AS PARQUET
 LOCATION 's3://bucket/orders/'
 TBLPROPERTIES (
   'classification'='parquet'
-)"""
+)"""]
         if normalized_query == "show create table pageviews":
-            return """CREATE EXTERNAL TABLE `pageviews`(
+                        return ["""CREATE EXTERNAL TABLE `pageviews`(
   `session_id` string,
   `path` string
 )
-STORED AS PARQUET"""
+STORED AS PARQUET"""]
         raise AssertionError(f"Query inesperada no fake Athena client: {query}")
 
 
@@ -216,10 +197,11 @@ def test_list_databases_prefers_cache_and_merges_remote(tmp_path: Path) -> None:
         "warehouse",
     ]
     assert all(database.sources == ["athena"] for database in databases)
-    assert athena_client.list_database_calls[0]["WorkGroup"] == "primary"
+    assert athena_client.start_query_calls[0]["QueryString"] == "SHOW DATABASES"
+    assert athena_client.start_query_calls[0]["WorkGroup"] == "primary"
 
 
-def test_list_tables_prefers_cache_and_merges_remote(tmp_path: Path) -> None:
+def test_list_tables_uses_show_tables_query(tmp_path: Path) -> None:
     athena_client = _FakeAthenaClient()
     service = AthenaService(
         QueryHistoryRepository(tmp_path / "query_history.jsonl"),
@@ -233,7 +215,24 @@ def test_list_tables_prefers_cache_and_merges_remote(tmp_path: Path) -> None:
 
     assert [table.table_name for table in tables] == ["orders", "pageviews"]
     assert all(table.sources == ["athena"] for table in tables)
-    assert athena_client.list_table_calls[0]["WorkGroup"] == "primary"
+    assert athena_client.start_query_calls[0]["QueryString"] == "SHOW TABLES IN analytics"
+    assert athena_client.start_query_calls[0]["WorkGroup"] == "primary"
+
+
+def test_list_tables_filters_prefix_after_show_tables_query(tmp_path: Path) -> None:
+    athena_client = _FakeAthenaClient()
+    service = AthenaService(
+        QueryHistoryRepository(tmp_path / "query_history.jsonl"),
+        athena_client=athena_client,
+    )
+
+    tables = service.list_tables(
+        build_configuration(tmp_path),
+        database_name="analytics",
+        name_prefix="ord",
+    )
+
+    assert [table.table_name for table in tables] == ["orders"]
 
 
 def test_get_table_metadata_reads_columns_from_show_create_table(
@@ -324,18 +323,22 @@ def test_sync_database_to_catalog_creates_generated_skills(tmp_path: Path) -> No
 
 def test_sync_database_to_catalog_handles_tables_without_tblproperties(tmp_path: Path) -> None:
     class _NullableParameterAthenaClient(_FakeAthenaClient):
-        def _resolve_show_create_table(self, query: str) -> str:
+        def _resolve_query_rows(self, query: str) -> list[str]:
             normalized_query = " ".join(query.strip().split()).lower()
+            if normalized_query == "show databases":
+                return ["analytics"]
+            if normalized_query == "show tables in analytics":
+                return ["orders", "pageviews"]
             if normalized_query == "show create table orders":
-                return """CREATE EXTERNAL TABLE `orders`(
+                return ["""CREATE EXTERNAL TABLE `orders`(
   `id` bigint
 )
-STORED AS TEXTFILE"""
+STORED AS TEXTFILE"""]
             if normalized_query == "show create table pageviews":
-                return """CREATE EXTERNAL TABLE `pageviews`(
+                return ["""CREATE EXTERNAL TABLE `pageviews`(
   `id` bigint
 )
-STORED AS TEXTFILE"""
+STORED AS TEXTFILE"""]
             raise AssertionError(f"Query inesperada no fake Athena client: {query}")
 
     athena_client = _NullableParameterAthenaClient()

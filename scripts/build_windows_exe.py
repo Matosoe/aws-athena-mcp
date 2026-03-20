@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
-import re
 import shutil
 import subprocess
 import sys
@@ -75,7 +73,6 @@ def main() -> int:
     versioned_exe_name = f"aws-athena-mcp-v{safe_version}-{build_timestamp}.exe"
 
     print(f"Build version: {project_version}")
-    print(f"Build timestamp: {build_timestamp}")
 
     # helper para invocar o comando python com args base opcionais
     def run_py(args: list[str]) -> None:
@@ -87,28 +84,32 @@ def main() -> int:
 
     dist_dir = root / "dist"
     default_exe = dist_dir / "aws-athena-mcp.exe"
+    latest_exe = dist_dir / "aws-athena-mcp-latest.exe"
     if not default_exe.exists():
         print("Erro: build concluido, mas artefato esperado nao foi encontrado: " f"{default_exe}")
         return 1
 
-    versioned_exe = dist_dir / versioned_exe_name
-    latest_exe = dist_dir / "aws-athena-mcp-latest.exe"
+    if not remove_if_exists(latest_exe):
+        return 1
 
-    if versioned_exe.exists():
-        versioned_exe.unlink()
-    if latest_exe.exists():
-        latest_exe.unlink()
+    for stale_versioned_exe in dist_dir.glob("aws-athena-mcp-v*.exe"):
+        if not remove_if_exists(stale_versioned_exe):
+            return 1
 
-    default_exe.rename(versioned_exe)
-    shutil.copy2(versioned_exe, latest_exe)
+    try:
+        default_exe.rename(latest_exe)
+    except PermissionError:
+        print(
+            "Erro: nao foi possivel finalizar o artefato latest porque ele esta em uso: "
+            f"{latest_exe}"
+        )
+        return 1
 
     latest_build_file = dist_dir / "LATEST_BUILD.txt"
     latest_build_file.write_text(
         "\n".join(
             [
                 f"project_version={project_version}",
-                f"build_timestamp={build_timestamp}",
-                f"versioned_exe={versioned_exe_name}",
                 "latest_exe=aws-athena-mcp-latest.exe",
             ]
         )
@@ -116,8 +117,7 @@ def main() -> int:
         encoding="ascii",
     )
 
-    print(f"Artefato versionado: {versioned_exe}")
-    print(f"Alias estavel: {latest_exe}")
+    print(f"Artefato gerado: {latest_exe}")
     return 0
 
 

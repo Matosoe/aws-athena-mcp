@@ -20,13 +20,8 @@ No fluxo padrao do repositorio, o ponto de entrada deve ser `scripts\build_windo
 
 O script gera:
 
-- artefato versionado: `dist/aws-athena-mcp-v<versao>-<yyyymmdd-HHMMSS>.exe`
-- alias estavel: `dist/aws-athena-mcp-latest.exe`
+- executavel estavel: `dist/aws-athena-mcp-latest.exe`
 - metadados do ultimo build: `dist/LATEST_BUILD.txt`
-
-Exemplo de artefato versionado:
-
-`aws-athena-mcp-v0.1.0-20260311-154500.exe`
 
 ## Processo de release
 
