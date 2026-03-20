@@ -4,10 +4,10 @@
 		{
 			"label": "Build MCP EXE",
 			"type": "process",
-			"command": "py",
+			"command": "cmd",
 			"args": [
-				"-3.11",
-				"scripts/build_windows_exe.py"
+				"/c",
+				"scripts\\build_windows_exe.cmd"
 			],
 			"isBackground": false
 		},

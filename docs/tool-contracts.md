@@ -145,11 +145,10 @@ Saida:
 
 ## list_athena_databases
 
-Lista os databases diretamente no Athena, sem usar merge com o indice do catalogo.
+Lista os databases diretamente no Athena via `SHOW DATABASES`, sem usar merge com o indice do catalogo.
 
 Observacao:
 
-- em ambientes com IAM restrito, essa tool pode falhar com access denied;
 - quando o usuario ja souber o database, prefira pedir o nome digitado e seguir direto para `list_athena_tables` ou `get_athena_table_metadata`.
 
 Entradas:
@@ -162,46 +161,16 @@ Saida:
 
 ## list_athena_tables
 
-Lista as tabelas de um database diretamente no Athena, sem usar merge com o indice do catalogo.
+Lista as tabelas de um database diretamente no Athena via `SHOW TABLES IN <database>`, sem usar merge com o indice do catalogo.
 
 Entradas:
 
 - database_name
 - catalog opcional
-- name_prefix opcional para filtrar por prefixo
+- name_prefix opcional para filtrar por prefixo no resultado da query
 
 Saida:
 
-- lista com database_name, table_name e sources.
-
-## get_athena_table_metadata
-
-Retorna as propriedades de uma tabela diretamente do Athena, derivando colunas, particoes e parametros a partir de `SHOW CREATE TABLE <nome_da_tabela>` executado no database informado.
-
-Entradas:
-
-- database_name
-- table_name
-- catalog opcional
-
-Saida:
-
-- database_name, table_name, catalog
-- columns e partition_keys
-- table_type e parameters
-- sources
-
-## sync_athena_database_to_catalog
-
-Sincroniza tabelas de um database do Athena para o catalogo S3, gerando skills basicas automaticamente para enriquecer o indice.
-
-Entradas:
-
-- database_name
-- catalog opcional
-- name_prefix opcional para limitar o conjunto sincronizado
-- max_tables opcional para limitar a quantidade processada
-- overwrite_existing para substituir entradas ja existentes
 
 Saida:
 

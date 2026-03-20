@@ -410,28 +410,28 @@ def build_app() -> FastMCP:
     @mcp.tool(
         name="list_athena_databases",
         description=(
-            "List databases directly from Athena. If the user already knows the database, "
-            "prefer asking them to type it instead of relying on this call."
+            "List databases directly from Athena using SHOW DATABASES. If the user already "
+            "knows the database, prefer asking them to type it instead of relying on this call."
         ),
     )
     def list_athena_databases(
         catalog: str | None = None,
     ) -> list[dict[str, object]]:
-        """List databases directly from Athena; in restricted IAM setups this may fail."""
+        """List databases directly from Athena using SHOW DATABASES."""
         return athena_handlers.list_athena_databases(
             catalog=catalog,
         )
 
     @mcp.tool(
         name="list_athena_tables",
-        description="List tables directly from Athena for a database.",
+        description="List tables directly from Athena for a database using SHOW TABLES.",
     )
     def list_athena_tables(
         database_name: str,
         catalog: str | None = None,
         name_prefix: str | None = None,
     ) -> list[dict[str, object]]:
-        """List tables directly from Athena for a database.
+        """List tables directly from Athena for a database using SHOW TABLES.
 
         Optionally filters the list by name prefix.
         """

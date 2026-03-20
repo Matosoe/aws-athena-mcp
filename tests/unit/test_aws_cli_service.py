@@ -110,6 +110,10 @@ def test_sso_login_uses_detached_session_outside_windows(monkeypatch) -> None:
         "athena_knowledge_mcp.services.aws_cli_service.os.name",
         "posix",
     )
+    monkeypatch.setattr(
+        "athena_knowledge_mcp.services.aws_cli_service.Path.home",
+        lambda: Path("C:/tmp"),
+    )
 
     result = service.sso_login("default")
 
