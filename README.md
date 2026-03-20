@@ -277,8 +277,6 @@ anyio.run(main)
 - `list_catalog_databases`
 - `list_catalog_tables`
 - `list_aws_cli_profiles`
-- `aws_sso_login`
-- `aws_sts_get_caller_identity`
 - `list_athena_databases`
 - `list_athena_tables`
 - `get_athena_table_metadata`
@@ -289,20 +287,11 @@ anyio.run(main)
 - `materialize_large_result_locally`
 - `list_local_result_files`
 
-## Tools auxiliares de autenticacao AWS CLI
+## Autenticacao AWS CLI
 
-Para reduzir atrito no fluxo de login SSO, o servidor expoe tools especificas da AWS CLI (sem execucao generica de shell):
+O servidor continua expondo `list_aws_cli_profiles` para descobrir perfis locais em `~/.aws/config` e `~/.aws/credentials`.
 
-- `list_aws_cli_profiles`: lista perfis encontrados em `~/.aws/config` e `~/.aws/credentials`.
-- `aws_sso_login`: inicia `aws sso login --profile <profile>` sem bloquear a tool e orienta o agente a aguardar a confirmacao do usuario apos a aprovacao no navegador.
-- `aws_sts_get_caller_identity`: valida a sessao ativa com `aws sts get-caller-identity`.
-
-Fluxo recomendado para perfil SSO:
-
-1. Chamar `list_aws_cli_profiles` para escolher o profile.
-2. Chamar `aws_sso_login` com esse profile e aguardar o usuario concluir a aprovacao no navegador.
-3. Chamar `aws_sts_get_caller_identity` para confirmar identidade e conta.
-4. Usar `update_server_configuration` com `authentication_type="profile"` e `aws_profile="<profile>"`.
+As tools de login SSO e de `sts get-caller-identity` nao sao mais expostas. Se alguma tool que acessa Athena ou S3 retornar acesso negado, a orientacao esperada e informar o usuario que ele precisa fazer login na AWS CLI antes de tentar novamente.
 
 ## Descoberta de catálogo
 

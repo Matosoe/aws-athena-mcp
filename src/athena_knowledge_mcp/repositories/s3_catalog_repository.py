@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from athena_knowledge_mcp.core.aws_errors import raise_if_aws_access_denied
 from athena_knowledge_mcp.core.models import CatalogEntry
 
 
@@ -41,6 +42,7 @@ class S3CatalogRepository:
         except Exception as exc:
             if self._is_missing_key_error(exc):
                 return []
+            raise_if_aws_access_denied(exc, "S3")
             raise
         body = response["Body"].read().decode("utf-8")
         return [
@@ -58,11 +60,15 @@ class S3CatalogRepository:
 
         if self._s3_client is None:
             raise RuntimeError("S3 client nao configurado")
-        self._s3_client.put_object(
-            Bucket=self._bucket,
-            Key=self._catalog_key(),
-            Body=payload.encode("utf-8"),
-        )
+        try:
+            self._s3_client.put_object(
+                Bucket=self._bucket,
+                Key=self._catalog_key(),
+                Body=payload.encode("utf-8"),
+            )
+        except Exception as exc:
+            raise_if_aws_access_denied(exc, "S3")
+            raise
 
     def _catalog_key(self) -> str:
         if not self._prefix:

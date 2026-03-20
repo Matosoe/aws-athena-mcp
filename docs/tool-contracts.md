@@ -3,6 +3,11 @@
 ## initialize_server_configuration
 
 Salva a configuracao inicial do servidor.
+# Contratos das tools do MVP
+
+## initialize_server_configuration
+
+Salva a configuracao inicial do servidor.
 
 Entradas principais:
 
@@ -23,16 +28,16 @@ Entradas principais:
 
 Observacao:
 
-- quando o bucket ainda nao estiver definido, prefira listar os buckets acessiveis e pedir para o usuario escolher um da lista;
-- o prefixo padrao sugerido para resultados e catalogo deve ser `mcp/athena/`, so pedindo digitacao manual quando o usuario quiser um prefixo personalizado.
-- no onboarding interativo, faca uma pergunta por vez;
-- nao junte regiao AWS, workgroup e databases na mesma pergunta;
-- nao exija database padrao; se precisar registrar contexto, peca apenas uma lista opcional de databases em pergunta separada.
+- quando o bucket ainda nao estiver definido, prefira listar os buckets acessiveis e pedir para o usuario escolher um da lista
+- o prefixo padrao sugerido para resultados e catalogo deve ser `mcp/athena/`, pedindo digitacao manual apenas quando o usuario quiser personalizar
+- no onboarding interativo, faca uma pergunta por vez
+- nao junte regiao AWS, workgroup e databases na mesma pergunta
+- nao exija database padrao; se precisar registrar contexto, peca apenas uma lista opcional de databases em pergunta separada
 
 Saida:
 
 - status configurado
-- mensagem de sucesso
+- campos faltantes quando a configuracao ainda estiver incompleta
 
 ## get_server_configuration_status
 
@@ -62,18 +67,13 @@ Saida:
 
 Atualiza parcialmente a configuracao persistida.
 
-Observacao:
-
-- quando o bucket ainda nao estiver definido, prefira listar os buckets acessiveis e pedir para o usuario escolher um da lista;
-- se o prefixo vier vazio, o servidor normaliza para `mcp/athena/`.
-
 ## search_table_catalog
 
 Busca tabelas no indice resumido por termos textuais.
 
 Saida:
 
-- lista de itens com database_name, table_name, summary, tags e detail_file_s3_uri.
+- lista de itens com database_name, table_name, summary, tags e detail_file_s3_uri
 
 ## get_table_skill
 
@@ -101,7 +101,7 @@ Entradas:
 
 Saida:
 
-- lista de itens do indice com database_name, table_name, summary, tags e detail_file_s3_uri.
+- lista de itens do indice com database_name, table_name, summary, tags e detail_file_s3_uri
 
 ## list_aws_cli_profiles
 
@@ -109,43 +109,18 @@ Lista os perfis encontrados localmente nos arquivos do AWS CLI.
 
 Saida:
 
-- lista de nomes de perfil.
+- lista de nomes de perfil
 
-## aws_sso_login
+## Falhas de autenticacao AWS
 
-Inicia `aws sso login` para um perfil especifico sem bloquear a tool.
+As tools de login SSO e de `sts get-caller-identity` nao sao mais expostas.
 
-Comportamento esperado:
+Quando uma tool acessar Athena ou S3 e receber acesso negado, a resposta esperada e orientar o usuario a fazer login na AWS CLI antes de tentar novamente.
 
-- o AWS CLI deve tentar abrir o navegador padrao para o usuario aprovar o login;
-- a tool retorna imediatamente com status de aguardando confirmacao do usuario;
-- depois disso, o agente deve pedir ao usuario para confirmar que aprovou o login no navegador antes de seguir.
+Mensagens esperadas:
 
-Entradas:
-
-- profile
-- timeout_seconds mantido apenas por compatibilidade da interface
-
-Saida:
-
-- success
-- command
-- status igual a `pending_user_confirmation`
-- requires_user_confirmation igual a `true`
-- next_step orientando o agente a pedir confirmacao ao usuario
-
-## aws_sts_get_caller_identity
-
-Valida a identidade AWS ativa usando AWS CLI.
-
-Entradas:
-
-- profile opcional
-
-Saida:
-
-- success
-- identity quando o retorno JSON for valido
+- `Acesso negado ao acessar o Athena. Faca login na AWS CLI para continuar.`
+- `Acesso negado ao acessar o S3. Faca login na AWS CLI para continuar.`
 
 ## list_athena_databases
 
@@ -153,7 +128,7 @@ Lista os databases diretamente no Athena via `SHOW DATABASES`, sem usar merge co
 
 Observacao:
 
-- quando o usuario ja souber o database, prefira pedir o nome digitado e seguir direto para `list_athena_tables` ou `get_athena_table_metadata`.
+- quando o usuario ja souber o database, prefira pedir o nome digitado e seguir direto para `list_athena_tables` ou `get_athena_table_metadata`
 
 Entradas:
 
@@ -161,7 +136,7 @@ Entradas:
 
 Saida:
 
-- lista com name e sources.
+- lista com `name` e `sources`
 
 ## list_athena_tables
 
@@ -175,16 +150,37 @@ Entradas:
 
 Saida:
 
+- lista com `database_name`, `table_name` e `sources`
+
+## get_athena_table_metadata
+
+Deriva colunas, particoes e propriedades de uma tabela via `SHOW CREATE TABLE`.
+
+Entradas:
+
+- database_name
+- table_name
+- catalog opcional
+
+Saida:
+
+- metadados completos da tabela, incluindo colunas, partition_keys, parameters e sources
+
+## sync_athena_database_to_catalog
+
+Consulta tabelas no Athena, gera skills basicas e sincroniza o catalogo resumido.
 
 Saida:
 
 - database_name
-- synced_tables e skipped_tables
-- synced_count e skipped_count
+- synced_tables
+- skipped_tables
+- synced_count
+- skipped_count
 
 ## execute_athena_query
 
-Executa uma SQL no Athena ou usa fallback local controlado para o MVP.
+Executa uma SQL no Athena ou usa fallback local controlado quando o cliente remoto nao estiver configurado.
 
 Saida:
 
@@ -196,7 +192,7 @@ Saida:
 
 Observacao:
 
-- a tool aceita qualquer SQL suportada pelo Athena, incluindo consultas de descoberta como SHOW DATABASES, SHOW TABLES e DESCRIBE.
+- a tool aceita qualquer SQL suportada pelo Athena, incluindo consultas de descoberta como `SHOW DATABASES`, `SHOW TABLES` e `DESCRIBE`
 
 ## get_query_execution_status
 

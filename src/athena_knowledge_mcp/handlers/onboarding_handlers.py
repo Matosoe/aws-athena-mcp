@@ -71,7 +71,9 @@ class OnboardingHandlers:
         )
 
     def list_accessible_s3_buckets(self) -> dict[str, object]:
-        buckets = self.onboarding_service.list_accessible_s3_buckets()
+        buckets = self.onboarding_service.list_accessible_s3_buckets(
+            raise_on_access_denied=True,
+        )
         return {
             "buckets": buckets,
             "recommended_prefix": DEFAULT_S3_PREFIX,

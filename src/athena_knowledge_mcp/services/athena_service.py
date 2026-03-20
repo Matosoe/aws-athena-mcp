@@ -8,6 +8,7 @@ from time import sleep
 from typing import Any
 from uuid import uuid4
 
+from athena_knowledge_mcp.core.aws_errors import raise_if_aws_access_denied
 from athena_knowledge_mcp.core.exceptions import QueryExecutionError
 from athena_knowledge_mcp.core.models import (
     AthenaColumnMetadata,
@@ -249,17 +250,21 @@ class AthenaService:
         }
         if database:
             query_context["Database"] = database
-        response: dict[str, Any] = self.athena_client.start_query_execution(
-            QueryString=request.query,
-            QueryExecutionContext=query_context,
-            WorkGroup=request.workgroup or configuration.athena_workgroup,
-            ResultConfiguration={
-                "OutputLocation": (
-                    f"s3://{configuration.query_results_s3_bucket}/"
-                    f"{configuration.query_results_s3_prefix.strip('/')}"
-                )
-            },
-        )
+        try:
+            response: dict[str, Any] = self.athena_client.start_query_execution(
+                QueryString=request.query,
+                QueryExecutionContext=query_context,
+                WorkGroup=request.workgroup or configuration.athena_workgroup,
+                ResultConfiguration={
+                    "OutputLocation": (
+                        f"s3://{configuration.query_results_s3_bucket}/"
+                        f"{configuration.query_results_s3_prefix.strip('/')}"
+                    )
+                },
+            )
+        except Exception as exc:
+            raise_if_aws_access_denied(exc, "Athena")
+            raise
         query_execution_id = response["QueryExecutionId"]
         status_response = self._wait_for_completion(
             query_execution_id,
@@ -353,9 +358,13 @@ class AthenaService:
         assert self.athena_client is not None
         waited_seconds = 0
         while waited_seconds < max_wait_seconds:
-            response: dict[str, Any] = self.athena_client.get_query_execution(
-                QueryExecutionId=query_execution_id
-            )
+            try:
+                response: dict[str, Any] = self.athena_client.get_query_execution(
+                    QueryExecutionId=query_execution_id
+                )
+            except Exception as exc:
+                raise_if_aws_access_denied(exc, "Athena")
+                raise
             state = response["QueryExecution"]["Status"]["State"]
             if state in {"SUCCEEDED", "FAILED", "CANCELLED"}:
                 return response
@@ -369,7 +378,11 @@ class AthenaService:
         assert self.s3_client is not None
         without_prefix = output_location[5:]
         bucket, _, key = without_prefix.partition("/")
-        response = self.s3_client.head_object(Bucket=bucket, Key=key)
+        try:
+            response = self.s3_client.head_object(Bucket=bucket, Key=key)
+        except Exception as exc:
+            raise_if_aws_access_denied(exc, "S3")
+            raise
         return int(response["ContentLength"])
 
     def _load_preview(
@@ -379,10 +392,14 @@ class AthenaService:
         query: str | None = None,
     ) -> QueryResultPreview:
         assert self.athena_client is not None
-        response: dict[str, Any] = self.athena_client.get_query_results(
-            QueryExecutionId=query_execution_id,
-            MaxResults=max_rows + 1,
-        )
+        try:
+            response: dict[str, Any] = self.athena_client.get_query_results(
+                QueryExecutionId=query_execution_id,
+                MaxResults=max_rows + 1,
+            )
+        except Exception as exc:
+            raise_if_aws_access_denied(exc, "Athena")
+            raise
         columns, values = self._parse_query_results_table(response, query_hint=query)
         return QueryResultPreview(columns=columns, rows=values, row_count=len(values))
 
@@ -456,20 +473,24 @@ class AthenaService:
         max_results: int = 1000,
     ) -> list[list[str | None]]:
         assert self.athena_client is not None
-        response: dict[str, Any] = self.athena_client.start_query_execution(
-            QueryString=query,
-            QueryExecutionContext={
-                "Database": database or configuration.default_database,
-                "Catalog": catalog,
-            },
-            WorkGroup=configuration.athena_workgroup,
-            ResultConfiguration={
-                "OutputLocation": (
-                    f"s3://{configuration.query_results_s3_bucket}/"
-                    f"{configuration.query_results_s3_prefix.strip('/')}"
-                )
-            },
-        )
+        try:
+            response: dict[str, Any] = self.athena_client.start_query_execution(
+                QueryString=query,
+                QueryExecutionContext={
+                    "Database": database or configuration.default_database,
+                    "Catalog": catalog,
+                },
+                WorkGroup=configuration.athena_workgroup,
+                ResultConfiguration={
+                    "OutputLocation": (
+                        f"s3://{configuration.query_results_s3_bucket}/"
+                        f"{configuration.query_results_s3_prefix.strip('/')}"
+                    )
+                },
+            )
+        except Exception as exc:
+            raise_if_aws_access_denied(exc, "Athena")
+            raise
         query_execution_id = response["QueryExecutionId"]
         status_response = self._wait_for_completion(query_execution_id, max_wait_seconds=60)
         query_execution = status_response["QueryExecution"]
@@ -479,10 +500,14 @@ class AthenaService:
                 query_execution["Status"].get("StateChangeReason", "Falha na query")
             )
 
-        result_response: dict[str, Any] = self.athena_client.get_query_results(
-            QueryExecutionId=query_execution_id,
-            MaxResults=max_results,
-        )
+        try:
+            result_response: dict[str, Any] = self.athena_client.get_query_results(
+                QueryExecutionId=query_execution_id,
+                MaxResults=max_results,
+            )
+        except Exception as exc:
+            raise_if_aws_access_denied(exc, "Athena")
+            raise
         return self._extract_rows_from_query_results(result_response)
 
     def _fetch_show_create_table_statement(
@@ -493,20 +518,24 @@ class AthenaService:
         catalog: str,
     ) -> str:
         assert self.athena_client is not None
-        response: dict[str, Any] = self.athena_client.start_query_execution(
-            QueryString=f"SHOW CREATE TABLE {self._quote_sql_identifier(table_name)}",
-            QueryExecutionContext={
-                "Database": database_name,
-                "Catalog": catalog,
-            },
-            WorkGroup=configuration.athena_workgroup,
-            ResultConfiguration={
-                "OutputLocation": (
-                    f"s3://{configuration.query_results_s3_bucket}/"
-                    f"{configuration.query_results_s3_prefix.strip('/')}"
-                )
-            },
-        )
+        try:
+            response: dict[str, Any] = self.athena_client.start_query_execution(
+                QueryString=f"SHOW CREATE TABLE {self._quote_sql_identifier(table_name)}",
+                QueryExecutionContext={
+                    "Database": database_name,
+                    "Catalog": catalog,
+                },
+                WorkGroup=configuration.athena_workgroup,
+                ResultConfiguration={
+                    "OutputLocation": (
+                        f"s3://{configuration.query_results_s3_bucket}/"
+                        f"{configuration.query_results_s3_prefix.strip('/')}"
+                    )
+                },
+            )
+        except Exception as exc:
+            raise_if_aws_access_denied(exc, "Athena")
+            raise
         query_execution_id = response["QueryExecutionId"]
         status_response = self._wait_for_completion(query_execution_id, max_wait_seconds=60)
         query_execution = status_response["QueryExecution"]
@@ -516,10 +545,14 @@ class AthenaService:
                 query_execution["Status"].get("StateChangeReason", "Falha na query")
             )
 
-        result_response: dict[str, Any] = self.athena_client.get_query_results(
-            QueryExecutionId=query_execution_id,
-            MaxResults=20,
-        )
+        try:
+            result_response: dict[str, Any] = self.athena_client.get_query_results(
+                QueryExecutionId=query_execution_id,
+                MaxResults=20,
+            )
+        except Exception as exc:
+            raise_if_aws_access_denied(exc, "Athena")
+            raise
         rows = self._extract_rows_from_query_results(result_response)
         statement_parts: list[str] = []
         for row in rows:

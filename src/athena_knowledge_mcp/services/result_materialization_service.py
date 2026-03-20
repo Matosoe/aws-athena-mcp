@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from athena_knowledge_mcp.core.aws_errors import raise_if_aws_access_denied
 from athena_knowledge_mcp.core.models import MaterializedResult, QueryExecutionRecord
 from athena_knowledge_mcp.services.athena_service import AthenaService
 
@@ -22,7 +23,11 @@ class ResultMaterializationService:
             local_path.write_bytes(self.athena_service.build_stub_csv(record))
         else:
             bucket, key = self._split_s3_uri(record.output_location)
-            self.s3_client.download_file(bucket, key, str(local_path))
+            try:
+                self.s3_client.download_file(bucket, key, str(local_path))
+            except Exception as exc:
+                raise_if_aws_access_denied(exc, "S3")
+                raise
 
         metadata_path = target_folder / f"{record.query_execution_id}.metadata.json"
         metadata_path.write_text(
