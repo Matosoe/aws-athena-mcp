@@ -18,21 +18,16 @@ Todo build Windows deve ser feito por `scripts/build_windows_exe.py`.
 
 O script gera:
 
-- artefato versionado: `dist/aws-athena-mcp-v<versao>-<yyyymmdd-HHMMSS>.exe`
-- alias estavel: `dist/aws-athena-mcp-latest.exe`
+- executavel estavel: `dist/aws-athena-mcp-latest.exe`
 - metadados do ultimo build: `dist/LATEST_BUILD.txt`
-
-Exemplo de artefato versionado:
-
-`aws-athena-mcp-v0.1.0-20260311-154500.exe`
 
 ## Processo de release
 
 1. Atualizar `project.version` no `pyproject.toml` conforme impacto da mudanca.
 2. Atualizar changelog/release notes da entrega.
 3. Executar build via script `scripts/build_windows_exe.py`.
-4. Publicar o artefato versionado gerado em `dist/`.
-5. Usar `aws-athena-mcp-latest.exe` apenas como atalho local para desenvolvimento/execucao.
+4. Publicar `dist/aws-athena-mcp-latest.exe`.
+5. Se precisar rastreabilidade adicional de release, use a versao de `pyproject.toml` e o conteudo de `dist/LATEST_BUILD.txt`.
 
 ## Compatibilidade
 

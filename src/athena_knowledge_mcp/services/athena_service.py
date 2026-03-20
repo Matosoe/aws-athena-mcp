@@ -41,9 +41,9 @@ class AthenaService:
                 "Cliente Athena nao configurado para consultar databases remotamente"
             )
 
-        remote_database_names = self._list_all_databases(
+        remote_database_names = self._list_databases_via_show(
+            configuration,
             catalog or configuration.athena_catalog,
-            configuration.athena_workgroup,
         )
         return [
             AthenaDatabaseSummary(
@@ -65,19 +65,19 @@ class AthenaService:
                 "Cliente Athena nao configurado para consultar tabelas remotamente"
             )
 
-        remote_tables = self._list_all_table_metadata(
-            catalog or configuration.athena_catalog,
-            database_name,
-            configuration.athena_workgroup,
-            expression=name_prefix,
+        remote_tables = self._list_tables_via_show(
+            configuration,
+            database_name=database_name,
+            catalog=catalog or configuration.athena_catalog,
+            name_prefix=name_prefix,
         )
         return [
             AthenaTableSummary(
                 database_name=database_name,
-                table_name=table["Name"],
+                table_name=table_name,
                 sources=["athena"],
             )
-            for table in remote_tables
+            for table_name in remote_tables
         ]
 
     def get_table_metadata(
@@ -274,7 +274,11 @@ class AthenaService:
             result_size_bytes is not None
             and result_size_bytes <= configuration.inline_result_max_bytes
         ):
-            preview = self._load_preview(query_execution_id, configuration.inline_result_max_rows)
+            preview = self._load_preview(
+                query_execution_id,
+                configuration.inline_result_max_rows,
+                query=request.query,
+            )
         else:
             next_step = "materialize_large_result_locally"
             completion_reason = format_large_result_message(
@@ -332,19 +336,18 @@ class AthenaService:
         response = self.s3_client.head_object(Bucket=bucket, Key=key)
         return int(response["ContentLength"])
 
-    def _load_preview(self, query_execution_id: str, max_rows: int) -> QueryResultPreview:
+    def _load_preview(
+        self,
+        query_execution_id: str,
+        max_rows: int,
+        query: str | None = None,
+    ) -> QueryResultPreview:
         assert self.athena_client is not None
         response: dict[str, Any] = self.athena_client.get_query_results(
             QueryExecutionId=query_execution_id,
             MaxResults=max_rows + 1,
         )
-        rows = response["ResultSet"]["Rows"]
-        if not rows:
-            return QueryResultPreview(columns=[], rows=[], row_count=0)
-        columns = [item.get("VarCharValue", "") for item in rows[0].get("Data", [])]
-        values: list[list[str | None]] = []
-        for row in rows[1:]:
-            values.append([column.get("VarCharValue") for column in row.get("Data", [])])
+        columns, values = self._parse_query_results_table(response, query_hint=query)
         return QueryResultPreview(columns=columns, rows=values, row_count=len(values))
 
     def build_stub_csv(self, record: QueryExecutionRecord) -> bytes:
@@ -359,53 +362,92 @@ class AthenaService:
             writer.writerow([record.query_execution_id, record.status])
         return buffer.getvalue().encode("utf-8")
 
-    def _list_all_databases(self, catalog: str, workgroup: str) -> list[str]:
-        assert self.athena_client is not None
-        databases: list[str] = []
-        next_token: str | None = None
-        while True:
-            request: dict[str, Any] = {
-                "CatalogName": catalog,
-                "MaxResults": 50,
-                "WorkGroup": workgroup,
-            }
-            if next_token is not None:
-                request["NextToken"] = next_token
-            response: dict[str, Any] = self.athena_client.list_databases(**request)
-            databases.extend(item["Name"] for item in response.get("DatabaseList", []))
-            next_token = response.get("NextToken")
-            if next_token is None:
-                break
-        return sorted(databases)
-
-    def _list_all_table_metadata(
+    def _list_databases_via_show(
         self,
+        configuration: ServerConfiguration,
         catalog: str,
-        database_name: str,
-        workgroup: str,
-        expression: str | None = None,
-    ) -> list[dict[str, Any]]:
-        assert self.athena_client is not None
-        tables: list[dict[str, Any]] = []
-        next_token: str | None = None
-        while True:
-            request: dict[str, Any] = {
-                "CatalogName": catalog,
-                "DatabaseName": database_name,
-                "MaxResults": 50,
-                "WorkGroup": workgroup,
+    ) -> list[str]:
+        rows = self._execute_metadata_query(
+            configuration,
+            query="SHOW DATABASES",
+            catalog=catalog,
+        )
+        databases = sorted(
+            {
+                row[0]
+                for row in rows
+                if row and row[0]
             }
-            if expression:
-                request["Expression"] = f"{expression}*"
-            if next_token is not None:
-                request["NextToken"] = next_token
-            response: dict[str, Any] = self.athena_client.list_table_metadata(**request)
-            tables.extend(response.get("TableMetadataList", []))
-            next_token = response.get("NextToken")
-            if next_token is None:
-                break
-        tables.sort(key=lambda item: item["Name"])
-        return tables
+        )
+        return databases
+
+    def _list_tables_via_show(
+        self,
+        configuration: ServerConfiguration,
+        database_name: str,
+        catalog: str,
+        name_prefix: str | None = None,
+    ) -> list[str]:
+        rows = self._execute_metadata_query(
+            configuration,
+            query=(
+                "SHOW TABLES IN "
+                f"{self._quote_sql_identifier(database_name)}"
+            ),
+            database=database_name,
+            catalog=catalog,
+        )
+        tables = [
+            row[0]
+            for row in rows
+            if row and row[0]
+        ]
+        if name_prefix:
+            normalized_prefix = name_prefix.lower()
+            tables = [
+                table_name
+                for table_name in tables
+                if table_name.lower().startswith(normalized_prefix)
+            ]
+        return sorted(set(tables))
+
+    def _execute_metadata_query(
+        self,
+        configuration: ServerConfiguration,
+        query: str,
+        catalog: str,
+        database: str | None = None,
+        max_results: int = 1000,
+    ) -> list[list[str | None]]:
+        assert self.athena_client is not None
+        response: dict[str, Any] = self.athena_client.start_query_execution(
+            QueryString=query,
+            QueryExecutionContext={
+                "Database": database or configuration.default_database,
+                "Catalog": catalog,
+            },
+            WorkGroup=configuration.athena_workgroup,
+            ResultConfiguration={
+                "OutputLocation": (
+                    f"s3://{configuration.query_results_s3_bucket}/"
+                    f"{configuration.query_results_s3_prefix.strip('/')}"
+                )
+            },
+        )
+        query_execution_id = response["QueryExecutionId"]
+        status_response = self._wait_for_completion(query_execution_id, max_wait_seconds=60)
+        query_execution = status_response["QueryExecution"]
+        status = query_execution["Status"]["State"]
+        if status != "SUCCEEDED":
+            raise QueryExecutionError(
+                query_execution["Status"].get("StateChangeReason", "Falha na query")
+            )
+
+        result_response: dict[str, Any] = self.athena_client.get_query_results(
+            QueryExecutionId=query_execution_id,
+            MaxResults=max_results,
+        )
+        return self._extract_rows_from_query_results(result_response)
 
     def _fetch_show_create_table_statement(
         self,
@@ -442,13 +484,10 @@ class AthenaService:
             QueryExecutionId=query_execution_id,
             MaxResults=20,
         )
-        rows = result_response.get("ResultSet", {}).get("Rows", [])
+        rows = self._extract_rows_from_query_results(result_response)
         statement_parts: list[str] = []
-        for row in rows[1:]:
-            values = row.get("Data", [])
-            if not values:
-                continue
-            statement = values[0].get("VarCharValue")
+        for row in rows:
+            statement = row[0] if row else None
             if statement:
                 statement_parts.append(statement)
 
@@ -458,6 +497,59 @@ class AthenaService:
                 f"SHOW CREATE TABLE nao retornou DDL para {database_name}.{table_name}"
             )
         return ddl
+
+    @staticmethod
+    def _extract_rows_from_query_results(
+        result_response: dict[str, Any],
+    ) -> list[list[str | None]]:
+        _, data_rows = AthenaService._parse_query_results_table(result_response)
+        return data_rows
+
+    @staticmethod
+    def _parse_query_results_table(
+        result_response: dict[str, Any],
+        query_hint: str | None = None,
+    ) -> tuple[list[str], list[list[str | None]]]:
+        result_set = result_response.get("ResultSet", {})
+        rows = result_set.get("Rows", [])
+        if not rows:
+            return [], []
+
+        metadata = result_set.get("ResultSetMetadata", {})
+        column_info = metadata.get("ColumnInfo", [])
+        metadata_columns = [
+            str(column.get("Name", ""))
+            for column in column_info
+            if str(column.get("Name", ""))
+        ]
+
+        parsed_rows = [
+            [column.get("VarCharValue") for column in row.get("Data", [])]
+            for row in rows
+        ]
+        if metadata_columns:
+            if parsed_rows and parsed_rows[0] == metadata_columns:
+                parsed_rows = parsed_rows[1:]
+            return metadata_columns, parsed_rows
+
+        inferred_columns = AthenaService._infer_columns_from_query_hint(query_hint)
+        if inferred_columns:
+            return inferred_columns, parsed_rows
+
+        columns = [item.get("VarCharValue", "") for item in rows[0].get("Data", [])]
+        return columns, parsed_rows[1:]
+
+    @staticmethod
+    def _infer_columns_from_query_hint(query_hint: str | None) -> list[str]:
+        if query_hint is None:
+            return []
+
+        normalized_query = " ".join(query_hint.strip().lower().split())
+        if normalized_query.startswith("show tables"):
+            return ["tab_name"]
+        if normalized_query.startswith("show databases"):
+            return ["database_name"]
+        return []
 
     def _parse_show_create_table(
         self,

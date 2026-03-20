@@ -69,13 +69,41 @@ Saida:
 
 - lista de itens do indice com database_name, table_name, summary, tags e detail_file_s3_uri.
 
-## list_athena_databases
+## list_aws_cli_profiles
 
-Lista os databases diretamente no Athena, sem usar merge com o indice do catalogo.
+Lista perfis encontrados nos arquivos locais da AWS CLI para o usuario escolher antes do login.
+
+Saida:
+
+- lista de nomes de profile.
+
+## aws_sso_login
+
+Executa o login SSO da AWS CLI para o profile escolhido em fluxo interativo de navegador.
+
+Entradas:
+
+- profile
+- timeout_seconds opcional
+
+Saida:
+
+- success, exit_code, stdout, stderr e command
+- profile usado no login
+- verification_url retornada pela AWS CLI
+- user_code para fallback manual
+- browser_opened indicando se o navegador padrao foi acionado
 
 Observacao:
 
-- em ambientes com IAM restrito, essa tool pode falhar com access denied;
+- o fluxo recomendado continua sendo listar os profiles primeiro, deixar o usuario escolher um deles e entao chamar `aws_sso_login`.
+
+## list_athena_databases
+
+Lista os databases diretamente no Athena via `SHOW DATABASES`, sem usar merge com o indice do catalogo.
+
+Observacao:
+
 - quando o usuario ja souber o database, prefira pedir o nome digitado e seguir direto para `list_athena_tables` ou `get_athena_table_metadata`.
 
 Entradas:
@@ -88,13 +116,13 @@ Saida:
 
 ## list_athena_tables
 
-Lista as tabelas de um database diretamente no Athena, sem usar merge com o indice do catalogo.
+Lista as tabelas de um database diretamente no Athena via `SHOW TABLES IN <database>`, sem usar merge com o indice do catalogo.
 
 Entradas:
 
 - database_name
 - catalog opcional
-- name_prefix opcional para filtrar por prefixo
+- name_prefix opcional para filtrar por prefixo no resultado da query
 
 Saida:
 

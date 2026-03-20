@@ -48,8 +48,7 @@ scripts\build_windows_exe.py
 
 O build gera:
 
-- binario versionado em `dist/aws-athena-mcp-v<versao>-<yyyymmdd-HHMMSS>.exe`;
-- alias estavel em `dist/aws-athena-mcp-latest.exe`;
+- executavel estavel em `dist/aws-athena-mcp-latest.exe`;
 - metadados do ultimo build em `dist/LATEST_BUILD.txt`.
 
 Politica completa de versionamento: `docs/versionamento.md`.
@@ -253,13 +252,13 @@ anyio.run(main)
 Para reduzir atrito no fluxo de login SSO, o servidor expoe tools especificas da AWS CLI (sem execucao generica de shell):
 
 - `list_aws_cli_profiles`: lista perfis encontrados em `~/.aws/config` e `~/.aws/credentials`.
-- `aws_sso_login`: executa `aws sso login --profile <profile>`.
+- `aws_sso_login`: executa `aws sso login --no-browser --profile <profile>`, extrai a URL de autorizacao e abre o navegador padrao do usuario.
 - `aws_sts_get_caller_identity`: valida a sessao ativa com `aws sts get-caller-identity`.
 
 Fluxo recomendado para perfil SSO:
 
 1. Chamar `list_aws_cli_profiles` para escolher o profile.
-2. Chamar `aws_sso_login` com esse profile.
+2. Chamar `aws_sso_login` com esse profile. A tool abre o navegador padrao e retorna tambem a `verification_url` e o `user_code` para fallback manual.
 3. Chamar `aws_sts_get_caller_identity` para confirmar identidade e conta.
 4. Usar `update_server_configuration` com `authentication_type="profile"` e `aws_profile="<profile>"`.
 
