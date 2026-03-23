@@ -5,6 +5,7 @@ Este e o UNICO arquivo que o time de plataforma precisa editar ao
 publicar uma nova versao do EXE para um novo ambiente (dev/staging/prod).
 Todos os outros campos de infraestrutura sao derivados daqui em runtime.
 """
+
 from __future__ import annotations
 
 from athena_knowledge_mcp.core.models import (
@@ -24,9 +25,7 @@ COMPANY_QUERY_RESULTS_S3_BUCKET: str = "minha-empresa-athena-results"
 COMPANY_QUERY_RESULTS_S3_PREFIX: str = "mcp/athena/results/"
 COMPANY_CATALOG_S3_BUCKET: str = "minha-empresa-athena-results"
 COMPANY_CATALOG_S3_PREFIX: str = "mcp/athena/catalog/"
-COMPANY_DEFAULT_AUTHENTICATION_TYPE: AwsAuthenticationType = (
-    AwsAuthenticationType.PROFILE
-)
+COMPANY_DEFAULT_AUTHENTICATION_TYPE: AwsAuthenticationType = AwsAuthenticationType.PROFILE
 
 
 def build_resolved_config(

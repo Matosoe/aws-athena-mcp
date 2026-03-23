@@ -49,9 +49,7 @@ class OnboardingService:
         )
 
     def get_resolved_configuration(self) -> ResolvedConfig | None:
-        return build_resolved_config(
-            self.config_repository.load_configuration()
-        )
+        return build_resolved_config(self.config_repository.load_configuration())
 
     def initialize_configuration(
         self,
@@ -82,9 +80,7 @@ class OnboardingService:
     ) -> ConfigurationStatus:
         current_configuration = self.config_repository.load_configuration()
         if current_configuration is None:
-            raise InvalidConfigurationError(
-                "Nao existe configuracao inicial para atualizar"
-            )
+            raise InvalidConfigurationError("Nao existe configuracao inicial para atualizar")
 
         current_secrets = self.config_repository.load_secrets()
         merged_configuration = current_configuration.model_copy(update=updates)
@@ -133,6 +129,4 @@ class OnboardingService:
                 region_name=resolved.aws_region,
             ).get_caller_identity()
         except Exception as exc:
-            raise InvalidConfigurationError(
-                f"Falha ao validar credenciais AWS: {exc}"
-            ) from exc
+            raise InvalidConfigurationError(f"Falha ao validar credenciais AWS: {exc}") from exc

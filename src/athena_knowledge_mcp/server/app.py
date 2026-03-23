@@ -11,19 +11,25 @@ from athena_knowledge_mcp.handlers.aws_cli_handlers import AwsCliHandlers
 from athena_knowledge_mcp.handlers.catalog_handlers import CatalogHandlers
 from athena_knowledge_mcp.handlers.file_handlers import FileHandlers
 from athena_knowledge_mcp.handlers.onboarding_handlers import OnboardingHandlers
+from athena_knowledge_mcp.handlers.routing_handlers import RoutingHandlers
 from athena_knowledge_mcp.repositories.local_config_repository import LocalConfigRepository
 from athena_knowledge_mcp.repositories.query_history_repository import QueryHistoryRepository
 from athena_knowledge_mcp.repositories.s3_catalog_repository import S3CatalogRepository
+from athena_knowledge_mcp.repositories.s3_skill_catalog_repository import (
+    S3SkillCatalogRepository,
+)
 from athena_knowledge_mcp.repositories.s3_skill_repository import S3SkillRepository
 from athena_knowledge_mcp.server.lifecycle import build_container
 from athena_knowledge_mcp.services.athena_service import AthenaService
 from athena_knowledge_mcp.services.aws_cli_service import AwsCliService
 from athena_knowledge_mcp.services.aws_session_service import AwsSessionService
 from athena_knowledge_mcp.services.onboarding_service import OnboardingService
+from athena_knowledge_mcp.services.request_routing_service import RequestRoutingService
 from athena_knowledge_mcp.services.result_materialization_service import (
     ResultMaterializationService,
 )
 from athena_knowledge_mcp.services.s3_catalog_service import S3CatalogService
+from athena_knowledge_mcp.services.skill_catalog_service import SkillCatalogService
 from athena_knowledge_mcp.services.table_skill_service import TableSkillService
 
 
@@ -79,7 +85,37 @@ def build_app() -> FastMCP:
             s3_client=s3_client,
             local_root=local_root,
         )
-        return TableSkillService(repository, create_catalog_service())
+        return TableSkillService(
+            repository,
+            create_catalog_service(),
+            create_skill_catalog_service(),
+        )
+
+    def create_skill_catalog_service() -> SkillCatalogService:
+        server_config = config_repository.load_configuration()
+        resolved = build_resolved_config(server_config)
+        secrets = config_repository.load_secrets()
+        local_root: Any | None = config.runtime_paths.state_dir / "skill_catalog"
+        s3_client: Any | None = None
+        if resolved is not None:
+            try:
+                s3_client = aws_session_service.build_client("s3", resolved, secrets)
+                local_root = None
+            except Exception:
+                local_root = config.runtime_paths.state_dir / "skill_catalog"
+        repository = S3SkillCatalogRepository(
+            bucket=resolved.catalog_bucket if resolved else "local-catalog",
+            prefix=resolved.catalog_prefix if resolved else "",
+            s3_client=s3_client,
+            local_root=local_root,
+        )
+        return SkillCatalogService(repository)
+
+    def create_request_routing_service() -> RequestRoutingService:
+        return RequestRoutingService(
+            table_catalog_service=create_catalog_service(),
+            skill_catalog_service=create_skill_catalog_service(),
+        )
 
     def create_athena_service() -> AthenaService:
         server_config = config_repository.load_configuration()
@@ -111,8 +147,13 @@ def build_app() -> FastMCP:
         return ResultMaterializationService(athena_service, s3_client=s3_client)
 
     onboarding_handlers = OnboardingHandlers(onboarding_service)
-    catalog_handlers = CatalogHandlers(onboarding_service, create_catalog_service)
+    catalog_handlers = CatalogHandlers(
+        onboarding_service,
+        create_catalog_service,
+        create_skill_catalog_service,
+    )
     file_handlers = FileHandlers(onboarding_service, create_table_skill_service)
+    routing_handlers = RoutingHandlers(onboarding_service, create_request_routing_service)
     aws_cli_handlers = AwsCliHandlers(AwsCliService())
     athena_handlers = AthenaHandlers(
         onboarding_service,
@@ -153,8 +194,7 @@ def build_app() -> FastMCP:
     @mcp.tool(
         name="get_server_configuration_status",
         description=(
-            "Return whether the server is configured and summarize the "
-            "active user settings."
+            "Return whether the server is configured and summarize the " "active user settings."
         ),
     )
     def get_server_configuration_status() -> dict[str, object]:
@@ -208,7 +248,8 @@ def build_app() -> FastMCP:
     @mcp.tool(
         name="search_table_catalog",
         description=(
-            "Search the indexed table catalog by text and return matching entries."
+            "Search the indexed table catalog by text and return matching entries. "
+            "Use this before Athena discovery tools."
             + storage_onboarding_note
         ),
     )
@@ -221,6 +262,52 @@ def build_app() -> FastMCP:
         Returns the most relevant table entries.
         """
         return catalog_handlers.search_table_catalog(query, limit)
+
+    @mcp.tool(
+        name="search_skill_catalog",
+        description=(
+            "Search the indexed skill catalog by natural language terms. "
+            "Use this first when the user request does not include explicit database/table names."
+        ),
+    )
+    def search_skill_catalog(
+        query: str,
+        limit: int = 5,
+    ) -> list[dict[str, object]]:
+        """Search skills by business intent and natural language terms."""
+        return catalog_handlers.search_skill_catalog(query, limit)
+
+    @mcp.tool(
+        name="list_catalog_skills",
+        description=(
+            "List skill IDs and metadata currently available in the skill index."
+        ),
+    )
+    def list_catalog_skills() -> list[dict[str, object]]:
+        """List all indexed skills sorted by skill_id."""
+        return catalog_handlers.list_catalog_skills()
+
+    @mcp.tool(
+        name="route_user_request_context",
+        description=(
+            "Route user intent before query execution: prefer table catalog when database/table "
+            "context is explicit, otherwise prefer skill catalog. Athena discovery should be used "
+            "only when catalog indexes are insufficient."
+        ),
+    )
+    def route_user_request_context(
+        user_request: str,
+        database_name: str | None = None,
+        table_name: str | None = None,
+        limit: int = 5,
+    ) -> dict[str, object]:
+        """Suggest whether to use table index, skill index, or Athena discovery."""
+        return routing_handlers.route_user_request_context(
+            user_request=user_request,
+            database_name=database_name,
+            table_name=table_name,
+            limit=limit,
+        )
 
     @mcp.tool(
         name="get_table_skill",
@@ -331,7 +418,9 @@ def build_app() -> FastMCP:
     @mcp.tool(
         name="execute_athena_query",
         description=(
-            "Execute SQL in Athena and optionally wait for completion."
+            "Execute SQL in Athena and optionally wait for completion. "
+            "Before running broad discovery queries, prefer route_user_request_context plus "
+            "search_table_catalog/search_skill_catalog."
             + storage_onboarding_note
         ),
     )
@@ -360,7 +449,8 @@ def build_app() -> FastMCP:
         name="list_athena_databases",
         description=(
             "List databases directly from Athena using SHOW DATABASES. If the user already "
-            "knows the database, prefer asking them to type it instead of relying on this call."
+            "knows the database, prefer asking them to type it instead of relying on this call. "
+            "Use this only after catalog and skill indexes are insufficient."
         ),
     )
     def list_athena_databases(
@@ -373,7 +463,10 @@ def build_app() -> FastMCP:
 
     @mcp.tool(
         name="list_athena_tables",
-        description="List tables directly from Athena for a database using SHOW TABLES.",
+        description=(
+            "List tables directly from Athena for a database using SHOW TABLES. "
+            "Use this only after catalog and skill indexes are insufficient."
+        ),
     )
     def list_athena_tables(
         database_name: str,
@@ -464,8 +557,7 @@ def build_app() -> FastMCP:
     @mcp.tool(
         name="materialize_large_result_locally",
         description=(
-            "Download a large Athena query result file to local storage."
-            + storage_onboarding_note
+            "Download a large Athena query result file to local storage." + storage_onboarding_note
         ),
     )
     def materialize_large_result_locally(
@@ -480,8 +572,7 @@ def build_app() -> FastMCP:
     @mcp.tool(
         name="list_local_result_files",
         description=(
-            "List Athena result files that were materialized locally."
-            + storage_onboarding_note
+            "List Athena result files that were materialized locally." + storage_onboarding_note
         ),
     )
     def list_local_result_files() -> list[str]:

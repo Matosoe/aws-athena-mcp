@@ -15,10 +15,7 @@ def validate_configuration(
     resolved: ResolvedConfig,
     secrets: AwsSecretMaterial,
 ) -> None:
-    if (
-        resolved.authentication_type == AwsAuthenticationType.PROFILE
-        and not resolved.aws_profile
-    ):
+    if resolved.authentication_type == AwsAuthenticationType.PROFILE and not resolved.aws_profile:
         raise InvalidConfigurationError(
             "aws_profile e obrigatorio quando authentication_type=profile"
         )
@@ -31,19 +28,18 @@ def validate_configuration(
                 "Credenciais AWS incompletas para autenticacao por chave"
             )
     if (
-        resolved.authentication_type
-        == AwsAuthenticationType.SESSION_TOKEN
+        resolved.authentication_type == AwsAuthenticationType.SESSION_TOKEN
         and not secrets.aws_session_token
     ):
         raise InvalidConfigurationError(
-            "aws_session_token e obrigatorio para "
-            "authentication_type=session_token"
+            "aws_session_token e obrigatorio para " "authentication_type=session_token"
         )
     validate_local_path(resolved.local_large_results_folder)
 
 
 def validate_s3_uri(value: str) -> None:
     from urllib.parse import urlparse
+
     parsed = urlparse(value)
     if parsed.scheme != "s3" or not parsed.netloc:
         raise InvalidConfigurationError(f"URI S3 invalida: {value}")

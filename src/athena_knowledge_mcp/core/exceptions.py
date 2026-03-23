@@ -14,9 +14,7 @@ class ConfigurationRequiredError(AthenaKnowledgeError):
 
         message_parts = ["Configuracao inicial obrigatoria."]
         if missing_fields:
-            message_parts.append(
-                f"Campos ausentes: {', '.join(missing_fields)}."
-            )
+            message_parts.append(f"Campos ausentes: {', '.join(missing_fields)}.")
         if guidance:
             message_parts.append(guidance)
 

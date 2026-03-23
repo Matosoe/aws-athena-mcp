@@ -32,10 +32,7 @@ class AwsSessionService:
         }:
             kwargs["aws_access_key_id"] = secrets.aws_access_key_id
             kwargs["aws_secret_access_key"] = secrets.aws_secret_access_key
-            if (
-                configuration.authentication_type
-                == AwsAuthenticationType.SESSION_TOKEN
-            ):
+            if configuration.authentication_type == AwsAuthenticationType.SESSION_TOKEN:
                 kwargs["aws_session_token"] = secrets.aws_session_token
 
         return boto3.session.Session(**kwargs)
@@ -58,9 +55,7 @@ class AwsSessionService:
         secrets: AwsSecretMaterial | None = None,
     ) -> list[str]:
         if configuration is None:
-            session = boto3.session.Session(
-                region_name=self.fallback_region_name
-            )
+            session = boto3.session.Session(region_name=self.fallback_region_name)
             client = session.client(
                 "s3",
                 region_name=self.fallback_region_name,

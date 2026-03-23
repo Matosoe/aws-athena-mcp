@@ -10,9 +10,13 @@ from athena_knowledge_mcp.core.models import (
 )
 from athena_knowledge_mcp.repositories.query_history_repository import QueryHistoryRepository
 from athena_knowledge_mcp.repositories.s3_catalog_repository import S3CatalogRepository
+from athena_knowledge_mcp.repositories.s3_skill_catalog_repository import (
+    S3SkillCatalogRepository,
+)
 from athena_knowledge_mcp.repositories.s3_skill_repository import S3SkillRepository
 from athena_knowledge_mcp.services.athena_service import AthenaService
 from athena_knowledge_mcp.services.s3_catalog_service import S3CatalogService
+from athena_knowledge_mcp.services.skill_catalog_service import SkillCatalogService
 from athena_knowledge_mcp.services.table_skill_service import TableSkillService
 
 
@@ -40,9 +44,7 @@ class _FakeAthenaClient:
             "QueryExecution": {
                 "Status": {"State": "SUCCEEDED"},
                 "ResultConfiguration": {
-                    "OutputLocation": (
-                        "s3://results-bucket/athena/results/query-1.csv"
-                    )
+                    "OutputLocation": ("s3://results-bucket/athena/results/query-1.csv")
                 },
                 "Statistics": {"EngineExecutionTimeInMillis": 12},
             }
@@ -77,7 +79,8 @@ class _FakeAthenaClient:
         if normalized_query == "show tables in finance":
             return []
         if normalized_query == "show create table orders":
-            return ["""CREATE EXTERNAL TABLE `orders`(
+            return [
+                """CREATE EXTERNAL TABLE `orders`(
   `order_id` bigint,
   `status` string COMMENT 'status atual',
   `items` array<struct<sku:string,qty:int>>
@@ -89,16 +92,17 @@ STORED AS PARQUET
 LOCATION 's3://bucket/orders/'
 TBLPROPERTIES (
   'classification'='parquet'
-)"""]
+)"""
+            ]
         if normalized_query == "show create table pageviews":
-            return ["""CREATE EXTERNAL TABLE `pageviews`(
+            return [
+                """CREATE EXTERNAL TABLE `pageviews`(
   `session_id` string,
   `path` string
 )
-STORED AS PARQUET"""]
-        raise AssertionError(
-            f"Query inesperada no fake Athena client: {query}"
-        )
+STORED AS PARQUET"""
+            ]
+        raise AssertionError(f"Query inesperada no fake Athena client: {query}")
 
 
 def build_configuration(tmp_path: Path) -> ResolvedConfig:
@@ -169,9 +173,7 @@ def test_execute_query_marks_large_result_for_materialization(tmp_path: Path) ->
 def test_execute_query_allows_missing_database_when_not_configured(
     tmp_path: Path,
 ) -> None:
-    service = AthenaService(
-        QueryHistoryRepository(tmp_path / "query_history.jsonl")
-    )
+    service = AthenaService(QueryHistoryRepository(tmp_path / "query_history.jsonl"))
     configuration = dataclasses.replace(
         build_configuration(tmp_path), default_database=None, athena_databases=[]
     )
@@ -260,10 +262,7 @@ def test_get_table_metadata_reads_columns_from_show_create_table(
     assert metadata.partition_keys[0].name == "dt"
     assert metadata.parameters["classification"] == "parquet"
     assert metadata.summary is None
-    assert (
-        athena_client.start_query_calls[0]["QueryString"]
-        == "SHOW CREATE TABLE orders"
-    )
+    assert athena_client.start_query_calls[0]["QueryString"] == "SHOW CREATE TABLE orders"
     assert athena_client.start_query_calls[0]["QueryExecutionContext"] == {
         "Database": "analytics",
         "Catalog": "AwsDataCatalog",
@@ -303,9 +302,17 @@ def test_sync_database_to_catalog_creates_generated_skills(tmp_path: Path) -> No
     catalog_service = S3CatalogService(
         S3CatalogRepository(bucket="local", prefix="", local_root=tmp_path / "catalog")
     )
+    skill_catalog_service = SkillCatalogService(
+        S3SkillCatalogRepository(
+            bucket="local",
+            prefix="",
+            local_root=tmp_path / "skill_catalog",
+        )
+    )
     table_skill_service = TableSkillService(
         S3SkillRepository(bucket="local", prefix="", local_root=tmp_path / "skills"),
         catalog_service,
+        skill_catalog_service,
     )
     service = AthenaService(
         QueryHistoryRepository(tmp_path / "query_history.jsonl"),
@@ -333,24 +340,36 @@ def test_sync_database_to_catalog_handles_tables_without_tblproperties(tmp_path:
             if normalized_query == "show tables in analytics":
                 return ["orders", "pageviews"]
             if normalized_query == "show create table orders":
-                return ["""CREATE EXTERNAL TABLE `orders`(
+                return [
+                    """CREATE EXTERNAL TABLE `orders`(
   `id` bigint
 )
-STORED AS TEXTFILE"""]
+STORED AS TEXTFILE"""
+                ]
             if normalized_query == "show create table pageviews":
-                return ["""CREATE EXTERNAL TABLE `pageviews`(
+                return [
+                    """CREATE EXTERNAL TABLE `pageviews`(
   `id` bigint
 )
-STORED AS TEXTFILE"""]
+STORED AS TEXTFILE"""
+                ]
             raise AssertionError(f"Query inesperada no fake Athena client: {query}")
 
     athena_client = _NullableParameterAthenaClient()
     catalog_service = S3CatalogService(
         S3CatalogRepository(bucket="local", prefix="", local_root=tmp_path / "catalog")
     )
+    skill_catalog_service = SkillCatalogService(
+        S3SkillCatalogRepository(
+            bucket="local",
+            prefix="",
+            local_root=tmp_path / "skill_catalog",
+        )
+    )
     table_skill_service = TableSkillService(
         S3SkillRepository(bucket="local", prefix="", local_root=tmp_path / "skills"),
         catalog_service,
+        skill_catalog_service,
     )
     service = AthenaService(
         QueryHistoryRepository(tmp_path / "query_history.jsonl"),

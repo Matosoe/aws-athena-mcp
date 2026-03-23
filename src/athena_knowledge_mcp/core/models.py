@@ -47,17 +47,13 @@ class ServerConfiguration(BaseModel):
     local_large_results_folder: Path = Field(default=Path("downloads"))
     inline_result_max_bytes: int = Field(default=500_000, ge=1)
     inline_result_max_rows: int = Field(default=200, ge=1)
-    last_updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(UTC)
-    )
+    last_updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @model_validator(mode="after")
     def normalize_fields(self) -> ServerConfiguration:
         self.local_large_results_folder = Path(self.local_large_results_folder)
         self.athena_databases = [
-            database.strip()
-            for database in self.athena_databases
-            if database and database.strip()
+            database.strip() for database in self.athena_databases if database and database.strip()
         ]
         if self.default_database is not None:
             self.default_database = self.default_database.strip() or None
@@ -184,9 +180,7 @@ class CatalogEntry(BaseModel):
     common_use_cases: list[str] = Field(default_factory=list)
     detail_file_s3_uri: str
     tags: list[str] = Field(default_factory=list)
-    last_updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(UTC)
-    )
+    last_updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     def searchable_text(self) -> str:
         parts = [
@@ -195,6 +189,42 @@ class CatalogEntry(BaseModel):
             self.summary,
             self.business_context,
             " ".join(self.common_use_cases),
+            " ".join(self.tags),
+        ]
+        return " ".join(part.lower() for part in parts if part)
+
+
+class SkillCatalogEntry(BaseModel):
+    skill_id: str
+    title: str
+    summary: str
+    description: str = ""
+    database_name: str | None = None
+    table_name: str | None = None
+    detail_file_s3_uri: str
+    tags: list[str] = Field(default_factory=list)
+    last_updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @model_validator(mode="after")
+    def normalize_fields(self) -> SkillCatalogEntry:
+        self.skill_id = self.skill_id.strip()
+        self.title = self.title.strip()
+        self.summary = self.summary.strip()
+        self.description = self.description.strip()
+        if self.database_name is not None:
+            self.database_name = self.database_name.strip() or None
+        if self.table_name is not None:
+            self.table_name = self.table_name.strip() or None
+        return self
+
+    def searchable_text(self) -> str:
+        parts = [
+            self.skill_id,
+            self.title,
+            self.summary,
+            self.description,
+            self.database_name or "",
+            self.table_name or "",
             " ".join(self.tags),
         ]
         return " ".join(part.lower() for part in parts if part)

@@ -28,9 +28,7 @@ class OnboardingHandlers:
         return status.model_dump(mode="json")
 
     def get_server_configuration_status(self) -> dict[str, object]:
-        return self.onboarding_service.get_configuration_status().model_dump(
-            mode="json"
-        )
+        return self.onboarding_service.get_configuration_status().model_dump(mode="json")
 
     def list_accessible_s3_buckets(self) -> dict[str, object]:
         buckets = self.onboarding_service.list_accessible_s3_buckets()

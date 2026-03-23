@@ -129,10 +129,14 @@ class AthenaService:
         synced_tables: list[str] = []
         skipped_tables: list[str] = []
         for table in tables:
-            if not overwrite_existing and table_skill_service.catalog_service.get_entry(
-                database_name,
-                table.table_name,
-            ) is not None:
+            if (
+                not overwrite_existing
+                and table_skill_service.catalog_service.get_entry(
+                    database_name,
+                    table.table_name,
+                )
+                is not None
+            ):
                 skipped_tables.append(table.table_name)
                 continue
 
@@ -205,10 +209,7 @@ class AthenaService:
                     submitted_query=request.query,
                     database=database,
                     catalog=request.catalog or configuration.athena_catalog,
-                    workgroup=(
-                        request.workgroup
-                        or configuration.athena_workgroup
-                    ),
+                    workgroup=(request.workgroup or configuration.athena_workgroup),
                     output_location=(
                         f"s3://{configuration.query_results_s3_bucket}/"
                         f"{configuration.query_results_s3_prefix.strip('/')}"
@@ -267,12 +268,8 @@ class AthenaService:
         )
         query_execution = status_response["QueryExecution"]
         status = query_execution["Status"]["State"]
-        output_location = query_execution["ResultConfiguration"].get(
-            "OutputLocation"
-        )
-        execution_time_ms = query_execution.get(
-            "Statistics", {}
-        ).get("EngineExecutionTimeInMillis")
+        output_location = query_execution["ResultConfiguration"].get("OutputLocation")
+        execution_time_ms = query_execution.get("Statistics", {}).get("EngineExecutionTimeInMillis")
 
         if status != "SUCCEEDED":
             raise QueryExecutionError(
@@ -282,11 +279,7 @@ class AthenaService:
                 )
             )
 
-        result_size_bytes = (
-            self._head_result_size(output_location)
-            if output_location
-            else None
-        )
+        result_size_bytes = self._head_result_size(output_location) if output_location else None
         preview = None
         next_step = None
         completion_reason = None
@@ -307,10 +300,7 @@ class AthenaService:
                     submitted_query=request.query,
                     database=database,
                     catalog=request.catalog or configuration.athena_catalog,
-                    workgroup=(
-                        request.workgroup
-                        or configuration.athena_workgroup
-                    ),
+                    workgroup=(request.workgroup or configuration.athena_workgroup),
                     output_location=output_location,
                     result_size_bytes=result_size_bytes,
                 )
@@ -338,10 +328,7 @@ class AthenaService:
     ) -> str | None:
         if request.database and request.database.strip():
             return request.database.strip()
-        if (
-            configuration.default_database
-            and configuration.default_database.strip()
-        ):
+        if configuration.default_database and configuration.default_database.strip():
             return configuration.default_database.strip()
         return None
 
@@ -408,13 +395,7 @@ class AthenaService:
             query="SHOW DATABASES",
             catalog=catalog,
         )
-        databases = sorted(
-            {
-                row[0]
-                for row in rows
-                if row and row[0]
-            }
-        )
+        databases = sorted({row[0] for row in rows if row and row[0]})
         return databases
 
     def _list_tables_via_show(
@@ -426,18 +407,11 @@ class AthenaService:
     ) -> list[str]:
         rows = self._execute_metadata_query(
             configuration,
-            query=(
-                "SHOW TABLES IN "
-                f"{self._quote_sql_identifier(database_name)}"
-            ),
+            query=("SHOW TABLES IN " f"{self._quote_sql_identifier(database_name)}"),
             database=database_name,
             catalog=catalog,
         )
-        tables = [
-            row[0]
-            for row in rows
-            if row and row[0]
-        ]
+        tables = [row[0] for row in rows if row and row[0]]
         if name_prefix:
             normalized_prefix = name_prefix.lower()
             tables = [
@@ -554,14 +528,11 @@ class AthenaService:
         metadata = result_set.get("ResultSetMetadata", {})
         column_info = metadata.get("ColumnInfo", [])
         metadata_columns = [
-            str(column.get("Name", ""))
-            for column in column_info
-            if str(column.get("Name", ""))
+            str(column.get("Name", "")) for column in column_info if str(column.get("Name", ""))
         ]
 
         parsed_rows = [
-            [column.get("VarCharValue") for column in row.get("Data", [])]
-            for row in rows
+            [column.get("VarCharValue") for column in row.get("Data", [])] for row in rows
         ]
         if metadata_columns:
             if parsed_rows and parsed_rows[0] == metadata_columns:
@@ -639,9 +610,7 @@ class AthenaService:
             catalog=catalog,
             sources=["athena"],
             table_type=(
-                "EXTERNAL_TABLE"
-                if header_match.group("external") is not None
-                else "TABLE"
+                "EXTERNAL_TABLE" if header_match.group("external") is not None else "TABLE"
             ),
             columns=self._parse_column_block(columns_block),
             partition_keys=partition_keys,
@@ -761,7 +730,7 @@ class AthenaService:
             )
             if comment_match is not None:
                 comment = comment_match.group(1).replace("''", "'")
-                tail = tail[:comment_match.start()].strip()
+                tail = tail[: comment_match.start()].strip()
             if not tail:
                 continue
             columns.append(
@@ -859,7 +828,11 @@ class AthenaService:
             + (f" e {len(metadata.partition_keys)} particoes" if metadata.partition_keys else "")
             + "."
         )
-        tags = [value for value in [metadata.table_type, metadata.parameters.get("classification")] if value]
+        tags = [
+            value
+            for value in [metadata.table_type, metadata.parameters.get("classification")]
+            if value
+        ]
         return TableSkill(
             database_name=metadata.database_name,
             table_name=metadata.table_name,

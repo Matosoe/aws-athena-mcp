@@ -3,15 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from athena_knowledge_mcp.core.exceptions import CatalogEntryNotFoundError
-from athena_knowledge_mcp.core.models import CatalogEntry, TableSkill
+from athena_knowledge_mcp.core.models import CatalogEntry, SkillCatalogEntry, TableSkill
 from athena_knowledge_mcp.repositories.s3_skill_repository import S3SkillRepository
 from athena_knowledge_mcp.services.s3_catalog_service import S3CatalogService
+from athena_knowledge_mcp.services.skill_catalog_service import SkillCatalogService
 
 
 @dataclass(slots=True)
 class TableSkillService:
     skill_repository: S3SkillRepository
     catalog_service: S3CatalogService
+    skill_catalog_service: SkillCatalogService
 
     def get_table_skill(self, database_name: str, table_name: str) -> dict[str, str]:
         try:
@@ -41,5 +43,18 @@ class TableSkillService:
             detail_file_s3_uri=detail_uri,
             tags=skill.tags,
             last_updated_at=skill.updated_at,
+        )
+        self.skill_catalog_service.upsert_entry(
+            SkillCatalogEntry(
+                skill_id=f"{skill.database_name}.{skill.table_name}",
+                title=skill.description,
+                summary=skill.summary,
+                description=skill.description,
+                database_name=skill.database_name,
+                table_name=skill.table_name,
+                detail_file_s3_uri=detail_uri,
+                tags=skill.tags,
+                last_updated_at=skill.updated_at,
+            )
         )
         return self.catalog_service.upsert_entry(entry)

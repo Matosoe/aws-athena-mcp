@@ -35,9 +35,7 @@ class SettingsStore:
         }
         if any(field in raw_data for field in _LEGACY_INFRA_FIELDS):
             raw_data = {
-                key: value
-                for key, value in raw_data.items()
-                if key not in _LEGACY_INFRA_FIELDS
+                key: value for key, value in raw_data.items() if key not in _LEGACY_INFRA_FIELDS
             }
         return ServerConfiguration.model_validate(raw_data)
 

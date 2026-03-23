@@ -6,12 +6,14 @@ from dataclasses import dataclass
 from athena_knowledge_mcp.server.middleware import require_configuration
 from athena_knowledge_mcp.services.onboarding_service import OnboardingService
 from athena_knowledge_mcp.services.s3_catalog_service import S3CatalogService
+from athena_knowledge_mcp.services.skill_catalog_service import SkillCatalogService
 
 
 @dataclass(slots=True)
 class CatalogHandlers:
     onboarding_service: OnboardingService
     catalog_service_factory: Callable[[], S3CatalogService]
+    skill_catalog_service_factory: Callable[[], SkillCatalogService]
 
     def search_table_catalog(self, query: str, limit: int = 5) -> list[dict[str, object]]:
         require_configuration(self.onboarding_service)
@@ -32,3 +34,13 @@ class CatalogHandlers:
         require_configuration(self.onboarding_service)
         service = self.catalog_service_factory()
         return service.refresh_index()
+
+    def search_skill_catalog(self, query: str, limit: int = 5) -> list[dict[str, object]]:
+        require_configuration(self.onboarding_service)
+        service = self.skill_catalog_service_factory()
+        return [entry.model_dump(mode="json") for entry in service.search(query, limit)]
+
+    def list_catalog_skills(self) -> list[dict[str, object]]:
+        require_configuration(self.onboarding_service)
+        service = self.skill_catalog_service_factory()
+        return [entry.model_dump(mode="json") for entry in service.list_skills()]
