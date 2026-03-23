@@ -42,25 +42,25 @@ COMPANY_DEFAULT_AUTHENTICATION_TYPE = "profile"  # ou "default_credentials"
 ### 2.2 Simplificação de `ServerConfiguration` (models.py)
 
 #### Estado atual — campos obrigatórios no onboarding:
-| Campo | Situação atual |
-|---|---|
-| `authentication_type` | Obrigatório pelo usuário |
-| `aws_region` | Obrigatório pelo usuário |
-| `aws_profile` | Opcional (só quando `auth = profile`) |
-| `athena_workgroup` | Obrigatório pelo usuário |
-| `athena_catalog` | Tem default `"AwsDataCatalog"` |
-| `query_results_s3_bucket` | Obrigatório pelo usuário |
-| `query_results_s3_prefix` | Tem default |
-| `catalog_bucket` | Obrigatório pelo usuário |
-| `catalog_prefix` | Tem default |
-| `athena_databases` | Opcional (variável) |
-| `default_database` | Opcional (variável) |
+| Campo                     | Situação atual                        |
+| ------------------------- | ------------------------------------- |
+| `authentication_type`     | Obrigatório pelo usuário              |
+| `aws_region`              | Obrigatório pelo usuário              |
+| `aws_profile`             | Opcional (só quando `auth = profile`) |
+| `athena_workgroup`        | Obrigatório pelo usuário              |
+| `athena_catalog`          | Tem default `"AwsDataCatalog"`        |
+| `query_results_s3_bucket` | Obrigatório pelo usuário              |
+| `query_results_s3_prefix` | Tem default                           |
+| `catalog_bucket`          | Obrigatório pelo usuário              |
+| `catalog_prefix`          | Tem default                           |
+| `athena_databases`        | Opcional (variável)                   |
+| `default_database`        | Opcional (variável)                   |
 
 #### Estado desejado — o que o usuário precisa informar:
-| Campo | Nova situação |
-|---|---|
-| `aws_profile` | **Único campo pedido ao usuário** (pode ser `None` se usar default_credentials) |
-| Todos os demais | Preenchidos automaticamente a partir de `company_defaults.py` |
+| Campo           | Nova situação                                                                   |
+| --------------- | ------------------------------------------------------------------------------- |
+| `aws_profile`   | **Único campo pedido ao usuário** (pode ser `None` se usar default_credentials) |
+| Todos os demais | Preenchidos automaticamente a partir de `company_defaults.py`                   |
 
 #### Mudança no modelo
 
@@ -177,50 +177,50 @@ Parâmetros:
 
 Os seguintes dados continuam sendo gerenciados dinamicamente, sem alteração:
 
-| Dado | Onde persiste | Quem gerencia |
-|---|---|---|
-| `athena_databases` | `state/runtime_settings.json` (local) | Tool `update_server_configuration` |
-| `default_database` | `state/runtime_settings.json` (local) | Tool `update_server_configuration` |
-| **Índice de catálogo** | `s3://{CATALOG_BUCKET}/{CATALOG_PREFIX}/catalog/catalog_index.jsonl` | Tools `sync_athena_database_to_catalog`, `refresh_catalog_index` |
-| **Skills de tabelas** | `s3://{CATALOG_BUCKET}/{CATALOG_PREFIX}/skills/tables/{db}/{table}.md` | Tool `create_or_update_table_skill` |
+| Dado                   | Onde persiste                                                          | Quem gerencia                                                    |
+| ---------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `athena_databases`     | `state/runtime_settings.json` (local)                                  | Tool `update_server_configuration`                               |
+| `default_database`     | `state/runtime_settings.json` (local)                                  | Tool `update_server_configuration`                               |
+| **Índice de catálogo** | `s3://{CATALOG_BUCKET}/{CATALOG_PREFIX}/catalog/catalog_index.jsonl`   | Tools `sync_athena_database_to_catalog`, `refresh_catalog_index` |
+| **Skills de tabelas**  | `s3://{CATALOG_BUCKET}/{CATALOG_PREFIX}/skills/tables/{db}/{table}.md` | Tool `create_or_update_table_skill`                              |
 
 ---
 
 ## 3. Impacto por Camada
 
 ### `core/`
-| Arquivo | Mudança |
-|---|---|
-| `models.py` | Simplificar `ServerConfiguration`; remover campos de infra |
-| `config.py` | Adicionar `get_resolved() -> ResolvedConfig` que injeta defaults |
+| Arquivo               | Mudança                                                             |
+| --------------------- | ------------------------------------------------------------------- |
+| `models.py`           | Simplificar `ServerConfiguration`; remover campos de infra          |
+| `config.py`           | Adicionar `get_resolved() -> ResolvedConfig` que injeta defaults    |
 | `company_defaults.py` | **Novo arquivo** — centraliza todas as constantes de infraestrutura |
 
 ### `services/`
-| Arquivo | Mudança |
-|---|---|
-| `onboarding_service.py` | Simplificar `REQUIRED_FIELDS`; remover `_enrich_storage_guidance()`; simplificar fluxo |
-| `aws_session_service.py` | Usar `ResolvedConfig` em vez de `ServerConfiguration` diretamente |
-| `athena_service.py` | Usar `ResolvedConfig` |
-| `s3_catalog_service.py` | Usar `ResolvedConfig` |
+| Arquivo                  | Mudança                                                                                |
+| ------------------------ | -------------------------------------------------------------------------------------- |
+| `onboarding_service.py`  | Simplificar `REQUIRED_FIELDS`; remover `_enrich_storage_guidance()`; simplificar fluxo |
+| `aws_session_service.py` | Usar `ResolvedConfig` em vez de `ServerConfiguration` diretamente                      |
+| `athena_service.py`      | Usar `ResolvedConfig`                                                                  |
+| `s3_catalog_service.py`  | Usar `ResolvedConfig`                                                                  |
 
 ### `handlers/`
-| Arquivo | Mudança |
-|---|---|
+| Arquivo                  | Mudança                                                                                          |
+| ------------------------ | ------------------------------------------------------------------------------------------------ |
 | `onboarding_handlers.py` | Remover parâmetros de infra de `initialize_server_configuration` e `update_server_configuration` |
 
 ### `server/app.py`
-| Mudança |
-|---|
+| Mudança                                                     |
+| ----------------------------------------------------------- |
 | Simplificar assinatura de `initialize_server_configuration` |
-| Simplificar assinatura de `update_server_configuration` |
-| Remover ou reclassificar `list_accessible_s3_buckets` |
+| Simplificar assinatura de `update_server_configuration`     |
+| Remover ou reclassificar `list_accessible_s3_buckets`       |
 
 ### `tests/`
-| Arquivo | Mudança |
-|---|---|
-| `test_onboarding_service.py` | Atualizar fixtures para o novo `ServerConfiguration` simplificado |
-| `test_athena_service.py` | Atualizar para `ResolvedConfig` |
-| `test_catalog_and_skill_service.py` | Atualizar para `ResolvedConfig` |
+| Arquivo                             | Mudança                                                           |
+| ----------------------------------- | ----------------------------------------------------------------- |
+| `test_onboarding_service.py`        | Atualizar fixtures para o novo `ServerConfiguration` simplificado |
+| `test_athena_service.py`            | Atualizar para `ResolvedConfig`                                   |
+| `test_catalog_and_skill_service.py` | Atualizar para `ResolvedConfig`                                   |
 
 ---
 
@@ -270,11 +270,11 @@ Agente: configuração salva. Testando conexão... ✓ Conectado como arn:aws:ia
 
 ## 6. Riscos e Mitigações
 
-| Risco | Mitigação |
-|---|---|
+| Risco                                                            | Mitigação                                                                                                                                                             |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Environments diferentes (dev/prod/staging) com buckets distintos | Versões diferentes do EXE compiladas com `company_defaults.py` diferente por ambiente; ou variável de ambiente `ATHENA_MCP_ENV` que seleciona um conjunto de defaults |
-| Usuário precisa usar bucket próprio temporariamente | Manter `update_server_configuration` com parâmetros opcionais de override de bucket (modo avançado, documentado) |
-| Migração de configuração existente salva em disco | `SettingsStore.load()` detecta configuração no formato antigo (presença de `query_results_s3_bucket`) e faz migração automática para o novo formato |
+| Usuário precisa usar bucket próprio temporariamente              | Manter `update_server_configuration` com parâmetros opcionais de override de bucket (modo avançado, documentado)                                                      |
+| Migração de configuração existente salva em disco                | `SettingsStore.load()` detecta configuração no formato antigo (presença de `query_results_s3_bucket`) e faz migração automática para o novo formato                   |
 
 ---
 

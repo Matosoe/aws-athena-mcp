@@ -21,6 +21,24 @@ class SettingsStore:
         if not self.exists():
             return None
         raw_data = json.loads(self._file_path.read_text(encoding="utf-8"))
+        # Migracao do formato antigo: descartar campos de infraestrutura que
+        # agora sao definidos em company_defaults.py e nao pelo usuario.
+        _LEGACY_INFRA_FIELDS = {
+            "authentication_type",
+            "aws_region",
+            "athena_workgroup",
+            "athena_catalog",
+            "query_results_s3_bucket",
+            "query_results_s3_prefix",
+            "catalog_bucket",
+            "catalog_prefix",
+        }
+        if any(field in raw_data for field in _LEGACY_INFRA_FIELDS):
+            raw_data = {
+                key: value
+                for key, value in raw_data.items()
+                if key not in _LEGACY_INFRA_FIELDS
+            }
         return ServerConfiguration.model_validate(raw_data)
 
     def save(self, configuration: ServerConfiguration) -> None:

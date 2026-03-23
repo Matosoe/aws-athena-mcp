@@ -4,8 +4,8 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from athena_knowledge_mcp.core.company_defaults import build_resolved_config
 from athena_knowledge_mcp.core.config import AppConfig
-from athena_knowledge_mcp.core.models import DEFAULT_S3_PREFIX
 from athena_knowledge_mcp.handlers.athena_handlers import AthenaHandlers
 from athena_knowledge_mcp.handlers.aws_cli_handlers import AwsCliHandlers
 from athena_knowledge_mcp.handlers.catalog_handlers import CatalogHandlers
@@ -42,52 +42,55 @@ def build_app() -> FastMCP:
     )
 
     def create_catalog_service() -> S3CatalogService:
-        configuration = config_repository.load_configuration()
+        server_config = config_repository.load_configuration()
+        resolved = build_resolved_config(server_config)
         secrets = config_repository.load_secrets()
         local_root: Any | None = config.runtime_paths.state_dir / "catalog"
         s3_client: Any | None = None
-        if configuration is not None:
+        if resolved is not None:
             try:
-                s3_client = aws_session_service.build_client("s3", configuration, secrets)
+                s3_client = aws_session_service.build_client("s3", resolved, secrets)
                 local_root = None
             except Exception:
                 local_root = config.runtime_paths.state_dir / "catalog"
         repository = S3CatalogRepository(
-            bucket=configuration.catalog_bucket if configuration else "local-catalog",
-            prefix=configuration.catalog_prefix if configuration else "",
+            bucket=resolved.catalog_bucket if resolved else "local-catalog",
+            prefix=resolved.catalog_prefix if resolved else "",
             s3_client=s3_client,
             local_root=local_root,
         )
         return S3CatalogService(repository)
 
     def create_table_skill_service() -> TableSkillService:
-        configuration = config_repository.load_configuration()
+        server_config = config_repository.load_configuration()
+        resolved = build_resolved_config(server_config)
         secrets = config_repository.load_secrets()
         local_root: Any | None = config.runtime_paths.state_dir / "skills"
         s3_client: Any | None = None
-        if configuration is not None:
+        if resolved is not None:
             try:
-                s3_client = aws_session_service.build_client("s3", configuration, secrets)
+                s3_client = aws_session_service.build_client("s3", resolved, secrets)
                 local_root = None
             except Exception:
                 local_root = config.runtime_paths.state_dir / "skills"
         repository = S3SkillRepository(
-            bucket=configuration.catalog_bucket if configuration else "local-catalog",
-            prefix=configuration.catalog_prefix if configuration else "",
+            bucket=resolved.catalog_bucket if resolved else "local-catalog",
+            prefix=resolved.catalog_prefix if resolved else "",
             s3_client=s3_client,
             local_root=local_root,
         )
         return TableSkillService(repository, create_catalog_service())
 
     def create_athena_service() -> AthenaService:
-        configuration = config_repository.load_configuration()
+        server_config = config_repository.load_configuration()
+        resolved = build_resolved_config(server_config)
         secrets = config_repository.load_secrets()
         athena_client: Any | None = None
         s3_client: Any | None = None
-        if configuration is not None:
+        if resolved is not None:
             try:
-                athena_client = aws_session_service.build_client("athena", configuration, secrets)
-                s3_client = aws_session_service.build_client("s3", configuration, secrets)
+                athena_client = aws_session_service.build_client("athena", resolved, secrets)
+                s3_client = aws_session_service.build_client("s3", resolved, secrets)
             except Exception:
                 athena_client = None
                 s3_client = None
@@ -96,12 +99,13 @@ def build_app() -> FastMCP:
     def create_materialization_service(
         athena_service: AthenaService,
     ) -> ResultMaterializationService:
-        configuration = config_repository.load_configuration()
+        server_config = config_repository.load_configuration()
+        resolved = build_resolved_config(server_config)
         secrets = config_repository.load_secrets()
         s3_client: Any | None = None
-        if configuration is not None:
+        if resolved is not None:
             try:
-                s3_client = aws_session_service.build_client("s3", configuration, secrets)
+                s3_client = aws_session_service.build_client("s3", resolved, secrets)
             except Exception:
                 s3_client = None
         return ResultMaterializationService(athena_service, s3_client=s3_client)
@@ -117,17 +121,8 @@ def build_app() -> FastMCP:
         create_table_skill_service,
     )
     storage_onboarding_note = (
-        " If the storage bucket or prefix is still undefined, first call "
-        "`list_accessible_s3_buckets`, ask the user to choose one of the "
-        "returned buckets, and suggest the default prefix "
-        f"`{DEFAULT_S3_PREFIX}` unless they request a custom prefix."
-    )
-    interactive_onboarding_note = (
-        " For interactive onboarding, ask one question at a time. "
-        "Do not combine AWS region, Athena workgroup, and databases "
-        "into a single prompt. Do not require a default database; "
-        "if useful, ask for an optional list of databases in a "
-        "separate question."
+        " Storage bucket, prefix, workgroup and region are pre-configured "
+        "for this environment. No bucket selection is needed."
     )
 
     mcp = FastMCP("AWS Athena Knowledge MCP", json_response=True)
@@ -135,61 +130,31 @@ def build_app() -> FastMCP:
     @mcp.tool(
         name="initialize_server_configuration",
         description=(
-            "Persist the initial AWS and Athena configuration used by the "
-            "server."
-            + storage_onboarding_note
-            + interactive_onboarding_note
+            "Save the initial user configuration. The only required input is "
+            "the AWS profile name. All infrastructure settings (bucket, "
+            "workgroup, region) are already fixed for this environment."
         ),
     )
     def initialize_server_configuration(
-        authentication_type: str,
-        aws_region: str,
-        athena_workgroup: str,
-        query_results_s3_bucket: str,
-        catalog_bucket: str,
-        athena_databases: list[str] | None = None,
-        default_database: str | None = None,
-        query_results_s3_prefix: str = DEFAULT_S3_PREFIX,
-        catalog_prefix: str = DEFAULT_S3_PREFIX,
-        athena_catalog: str = "AwsDataCatalog",
-        local_large_results_folder: str = "downloads",
-        inline_result_max_bytes: int = 500000,
-        inline_result_max_rows: int = 200,
         aws_profile: str | None = None,
-        aws_access_key_id: str | None = None,
-        aws_secret_access_key: str | None = None,
-        aws_session_token: str | None = None,
         skip_aws_validation: bool = False,
     ) -> dict[str, object]:
-        """Persist the initial AWS and Athena configuration.
+        """Save the initial user configuration.
 
-        The stored settings are used by the MCP server on later calls.
+        Ask only for the AWS profile name (or confirm default credentials).
+        Infrastructure settings are set by the platform team in
+        company_defaults.py and do not need to be provided by the user.
         """
         return onboarding_handlers.initialize_server_configuration(
-            authentication_type=authentication_type,
-            aws_region=aws_region,
-            athena_workgroup=athena_workgroup,
-            query_results_s3_bucket=query_results_s3_bucket,
-            athena_databases=athena_databases,
-            default_database=default_database,
-            query_results_s3_prefix=query_results_s3_prefix,
-            catalog_bucket=catalog_bucket,
-            catalog_prefix=catalog_prefix,
-            athena_catalog=athena_catalog,
-            local_large_results_folder=local_large_results_folder,
-            inline_result_max_bytes=inline_result_max_bytes,
-            inline_result_max_rows=inline_result_max_rows,
             aws_profile=aws_profile,
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            aws_session_token=aws_session_token,
             skip_aws_validation=skip_aws_validation,
         )
 
     @mcp.tool(
         name="get_server_configuration_status",
         description=(
-            "Return whether the server is configured and summarize the " "active settings."
+            "Return whether the server is configured and summarize the "
+            "active user settings."
         ),
     )
     def get_server_configuration_status() -> dict[str, object]:
@@ -202,73 +167,42 @@ def build_app() -> FastMCP:
     @mcp.tool(
         name="list_accessible_s3_buckets",
         description=(
-            "List accessible S3 buckets for onboarding so the user can choose a bucket from "
-            f"the returned list. Suggest the default prefix `{DEFAULT_S3_PREFIX}` unless the "
-            "user explicitly asks for a custom prefix."
+            "Diagnostic tool: list S3 buckets accessible with the current "
+            "AWS credentials. Not part of the onboarding flow — the bucket "
+            "is already defined in company_defaults.py."
         ),
     )
     def list_accessible_s3_buckets() -> dict[str, object]:
-        """List S3 buckets that can be reached with the current AWS credentials."""
+        """List S3 buckets accessible with the current AWS credentials."""
         return onboarding_handlers.list_accessible_s3_buckets()
 
     @mcp.tool(
         name="update_server_configuration",
         description=(
-            "Update one or more persisted server configuration fields."
-            + storage_onboarding_note
-            + interactive_onboarding_note
+            "Update user-facing configuration fields: aws_profile, "
+            "default_database, athena_databases, inline_result_max_bytes, "
+            "inline_result_max_rows."
         ),
     )
     def update_server_configuration(
-        authentication_type: str | None = None,
-        aws_region: str | None = None,
-        athena_workgroup: str | None = None,
-        athena_databases: list[str] | None = None,
+        aws_profile: str | None = None,
         default_database: str | None = None,
-        query_results_s3_bucket: str | None = None,
-        query_results_s3_prefix: str | None = None,
-        catalog_bucket: str | None = None,
-        catalog_prefix: str | None = None,
-        athena_catalog: str | None = None,
-        local_large_results_folder: str | None = None,
+        athena_databases: list[str] | None = None,
         inline_result_max_bytes: int | None = None,
         inline_result_max_rows: int | None = None,
-        aws_profile: str | None = None,
-        aws_access_key_id: str | None = None,
-        aws_secret_access_key: str | None = None,
-        aws_session_token: str | None = None,
         skip_aws_validation: bool = False,
     ) -> dict[str, object]:
-        """Update persisted server configuration fields.
+        """Update persisted user configuration fields.
 
         This avoids recreating the full setup from scratch.
         """
-        updates = {
-            key: value
-            for key, value in {
-                "authentication_type": authentication_type,
-                "aws_region": aws_region,
-                "athena_workgroup": athena_workgroup,
-                "athena_databases": athena_databases,
-                "default_database": default_database,
-                "query_results_s3_bucket": query_results_s3_bucket,
-                "query_results_s3_prefix": query_results_s3_prefix,
-                "catalog_bucket": catalog_bucket,
-                "catalog_prefix": catalog_prefix,
-                "athena_catalog": athena_catalog,
-                "local_large_results_folder": local_large_results_folder,
-                "inline_result_max_bytes": inline_result_max_bytes,
-                "inline_result_max_rows": inline_result_max_rows,
-                "aws_profile": aws_profile,
-                "aws_access_key_id": aws_access_key_id,
-                "aws_secret_access_key": aws_secret_access_key,
-                "aws_session_token": aws_session_token,
-            }.items()
-            if value is not None
-        }
         return onboarding_handlers.update_server_configuration(
+            aws_profile=aws_profile,
+            default_database=default_database,
+            athena_databases=athena_databases,
+            inline_result_max_bytes=inline_result_max_bytes,
+            inline_result_max_rows=inline_result_max_rows,
             skip_aws_validation=skip_aws_validation,
-            **updates,
         )
 
     @mcp.tool(

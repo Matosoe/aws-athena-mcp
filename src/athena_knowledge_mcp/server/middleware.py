@@ -11,7 +11,5 @@ def require_configuration(onboarding_service: OnboardingService) -> Configuratio
         raise ConfigurationRequiredError(
             status.missing_fields,
             guidance=status.next_step,
-            available_s3_buckets=status.available_s3_buckets,
-            recommended_s3_prefix=status.recommended_s3_prefix,
         )
     return status

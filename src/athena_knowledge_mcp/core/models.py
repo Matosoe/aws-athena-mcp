@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -33,17 +34,16 @@ class RuntimePaths(BaseModel):
 
 
 class ServerConfiguration(BaseModel):
-    authentication_type: AwsAuthenticationType
-    aws_region: str
+    """Preferencias do usuario persistidas localmente.
+
+    Apenas os campos que variam por usuario e por sessao sao armazenados
+    aqui. Os campos de infraestrutura (bucket, workgroup, regiao etc.) sao
+    definidos em company_defaults.py.
+    """
+
     aws_profile: str | None = None
-    athena_workgroup: str
-    athena_catalog: str = "AwsDataCatalog"
     athena_databases: list[str] = Field(default_factory=list)
     default_database: str | None = None
-    query_results_s3_bucket: str
-    query_results_s3_prefix: str
-    catalog_bucket: str
-    catalog_prefix: str
     local_large_results_folder: Path = Field(default=Path("downloads"))
     inline_result_max_bytes: int = Field(default=500_000, ge=1)
     inline_result_max_rows: int = Field(default=200, ge=1)
@@ -61,11 +61,35 @@ class ServerConfiguration(BaseModel):
         ]
         if self.default_database is not None:
             self.default_database = self.default_database.strip() or None
-        self.query_results_s3_prefix = normalize_s3_prefix(
-            self.query_results_s3_prefix
-        )
-        self.catalog_prefix = normalize_s3_prefix(self.catalog_prefix)
         return self
+
+
+@dataclass(slots=True)
+class ResolvedConfig:
+    """Configuracao completa em runtime.
+
+    Une os defaults corporativos (company_defaults.py) com as preferencias
+    do usuario (ServerConfiguration). Usado pelos servicos que precisam de
+    todos os campos de infraestrutura.
+    """
+
+    # Campos fixos — vem de company_defaults.py
+    aws_region: str
+    authentication_type: AwsAuthenticationType
+    athena_workgroup: str
+    athena_catalog: str
+    query_results_s3_bucket: str
+    query_results_s3_prefix: str
+    catalog_bucket: str
+    catalog_prefix: str
+
+    # Campos variaveis — vem de ServerConfiguration
+    aws_profile: str | None
+    athena_databases: list[str]
+    default_database: str | None
+    local_large_results_folder: Path
+    inline_result_max_bytes: int
+    inline_result_max_rows: int
 
 
 class AwsSecretMaterial(BaseModel):
@@ -79,10 +103,6 @@ class ConfigurationStatus(BaseModel):
     missing_fields: list[str] = Field(default_factory=list)
     last_updated_at: datetime | None = None
     catalog_last_sync_at: datetime | None = None
-    storage_selection_required: bool = False
-    storage_missing_fields: list[str] = Field(default_factory=list)
-    available_s3_buckets: list[str] = Field(default_factory=list)
-    recommended_s3_prefix: str | None = None
     next_step: str | None = None
 
 

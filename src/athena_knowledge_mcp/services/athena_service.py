@@ -17,7 +17,7 @@ from athena_knowledge_mcp.core.models import (
     AthenaTableSummary,
     QueryExecutionRecord,
     QueryResultPreview,
-    ServerConfiguration,
+    ResolvedConfig,
     TableSkill,
 )
 from athena_knowledge_mcp.repositories.query_history_repository import QueryHistoryRepository
@@ -33,7 +33,7 @@ class AthenaService:
 
     def list_databases(
         self,
-        configuration: ServerConfiguration,
+        configuration: ResolvedConfig,
         catalog: str | None = None,
     ) -> list[AthenaDatabaseSummary]:
         if self.athena_client is None:
@@ -55,7 +55,7 @@ class AthenaService:
 
     def list_tables(
         self,
-        configuration: ServerConfiguration,
+        configuration: ResolvedConfig,
         database_name: str,
         catalog: str | None = None,
         name_prefix: str | None = None,
@@ -82,7 +82,7 @@ class AthenaService:
 
     def get_table_metadata(
         self,
-        configuration: ServerConfiguration,
+        configuration: ResolvedConfig,
         database_name: str,
         table_name: str,
         catalog: str | None = None,
@@ -109,7 +109,7 @@ class AthenaService:
 
     def sync_database_to_catalog(
         self,
-        configuration: ServerConfiguration,
+        configuration: ResolvedConfig,
         database_name: str,
         table_skill_service: TableSkillService,
         catalog: str | None = None,
@@ -157,7 +157,7 @@ class AthenaService:
     def execute_query(
         self,
         request: AthenaQueryRequest,
-        configuration: ServerConfiguration,
+        configuration: ResolvedConfig,
     ) -> QueryExecutionRecord:
         if self.athena_client is None or self.s3_client is None:
             record = self._execute_stub(request, configuration)
@@ -181,7 +181,7 @@ class AthenaService:
     def _execute_stub(
         self,
         request: AthenaQueryRequest,
-        configuration: ServerConfiguration,
+        configuration: ResolvedConfig,
     ) -> QueryExecutionRecord:
         query_execution_id = f"stub-{uuid4().hex[:12]}"
         database = self._resolve_database(request, configuration)
@@ -240,7 +240,7 @@ class AthenaService:
     def _execute_remote(
         self,
         request: AthenaQueryRequest,
-        configuration: ServerConfiguration,
+        configuration: ResolvedConfig,
     ) -> QueryExecutionRecord:
         assert self.athena_client is not None
         database = self._resolve_database(request, configuration)
@@ -334,7 +334,7 @@ class AthenaService:
     def _resolve_database(
         self,
         request: AthenaQueryRequest,
-        configuration: ServerConfiguration,
+        configuration: ResolvedConfig,
     ) -> str | None:
         if request.database and request.database.strip():
             return request.database.strip()
@@ -400,7 +400,7 @@ class AthenaService:
 
     def _list_databases_via_show(
         self,
-        configuration: ServerConfiguration,
+        configuration: ResolvedConfig,
         catalog: str,
     ) -> list[str]:
         rows = self._execute_metadata_query(
@@ -419,7 +419,7 @@ class AthenaService:
 
     def _list_tables_via_show(
         self,
-        configuration: ServerConfiguration,
+        configuration: ResolvedConfig,
         database_name: str,
         catalog: str,
         name_prefix: str | None = None,
@@ -449,7 +449,7 @@ class AthenaService:
 
     def _execute_metadata_query(
         self,
-        configuration: ServerConfiguration,
+        configuration: ResolvedConfig,
         query: str,
         catalog: str,
         database: str | None = None,
@@ -487,7 +487,7 @@ class AthenaService:
 
     def _fetch_show_create_table_statement(
         self,
-        configuration: ServerConfiguration,
+        configuration: ResolvedConfig,
         database_name: str,
         table_name: str,
         catalog: str,

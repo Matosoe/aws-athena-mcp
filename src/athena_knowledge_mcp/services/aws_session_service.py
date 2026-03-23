@@ -7,7 +7,7 @@ import boto3  # type: ignore[import-untyped]
 from athena_knowledge_mcp.core.models import (
     AwsAuthenticationType,
     AwsSecretMaterial,
-    ServerConfiguration,
+    ResolvedConfig,
 )
 
 
@@ -16,7 +16,7 @@ class AwsSessionService:
 
     def build_session(
         self,
-        configuration: ServerConfiguration,
+        configuration: ResolvedConfig,
         secrets: AwsSecretMaterial,
     ) -> boto3.session.Session:
         kwargs: dict[str, Any] = {"region_name": configuration.aws_region}
@@ -43,7 +43,7 @@ class AwsSessionService:
     def build_client(
         self,
         service_name: str,
-        configuration: ServerConfiguration,
+        configuration: ResolvedConfig,
         secrets: AwsSecretMaterial,
     ) -> Any:
         session = self.build_session(configuration, secrets)
@@ -54,7 +54,7 @@ class AwsSessionService:
 
     def list_s3_buckets(
         self,
-        configuration: ServerConfiguration | None = None,
+        configuration: ResolvedConfig | None = None,
         secrets: AwsSecretMaterial | None = None,
     ) -> list[str]:
         if configuration is None:

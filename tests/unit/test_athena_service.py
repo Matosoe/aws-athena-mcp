@@ -1,10 +1,11 @@
-from datetime import UTC, datetime
+import dataclasses
 from pathlib import Path
 
+from athena_knowledge_mcp.core.company_defaults import build_resolved_config
 from athena_knowledge_mcp.core.models import (
     AthenaQueryRequest,
-    AwsAuthenticationType,
     CatalogEntry,
+    ResolvedConfig,
     ServerConfiguration,
 )
 from athena_knowledge_mcp.repositories.query_history_repository import QueryHistoryRepository
@@ -100,18 +101,15 @@ STORED AS PARQUET"""]
         )
 
 
-def build_configuration(tmp_path: Path) -> ServerConfiguration:
-    return ServerConfiguration(
-        authentication_type=AwsAuthenticationType.DEFAULT_CREDENTIALS,
-        aws_region="us-east-1",
-        athena_workgroup="primary",
+def build_configuration(tmp_path: Path) -> ResolvedConfig:
+    server_config = ServerConfiguration(
+        aws_profile="default",
         athena_databases=["default", "analytics"],
-        query_results_s3_bucket="results-bucket",
-        query_results_s3_prefix="athena/results",
-        catalog_bucket="catalog-bucket",
-        catalog_prefix="catalog/root",
         local_large_results_folder=tmp_path / "downloads",
     )
+    resolved = build_resolved_config(server_config)
+    assert resolved is not None
+    return resolved
 
 
 def build_catalog_service(tmp_path: Path) -> S3CatalogService:
@@ -174,8 +172,8 @@ def test_execute_query_allows_missing_database_when_not_configured(
     service = AthenaService(
         QueryHistoryRepository(tmp_path / "query_history.jsonl")
     )
-    configuration = build_configuration(tmp_path).model_copy(
-        update={"default_database": None, "athena_databases": []}
+    configuration = dataclasses.replace(
+        build_configuration(tmp_path), default_database=None, athena_databases=[]
     )
 
     record = service.execute_query(
@@ -286,8 +284,8 @@ def test_execute_remote_query_omits_database_when_not_available(
         athena_client=athena_client,
         s3_client=_FakeS3Client(),
     )
-    configuration = build_configuration(tmp_path).model_copy(
-        update={"default_database": None, "athena_databases": []}
+    configuration = dataclasses.replace(
+        build_configuration(tmp_path), default_database=None, athena_databases=[]
     )
 
     service.execute_query(
