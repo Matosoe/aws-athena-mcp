@@ -2,8 +2,10 @@
 	"servers": {
 		"athena": {
 			"type": "stdio",
-			"command": "C:\\Projetos\\aws-athena-mcp\\dist\\aws-athena-mcp-latest.exe",
-			"args": []
+			"command": "C:\\Projetos\\aws-athena-mcp\\.venv\\Scripts\\python.exe",
+			"args": [
+				"C:\\Projetos\\aws-athena-mcp\\main.py"
+			]
 		}
 	},
 	"inputs": []

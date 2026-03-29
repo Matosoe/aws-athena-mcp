@@ -9,7 +9,10 @@ from botocore.exceptions import (  # type: ignore[import-untyped]
     ProfileNotFound,
 )
 
-from athena_knowledge_mcp.core.company_defaults import build_resolved_config
+from athena_knowledge_mcp.core.company_defaults import (
+    build_resolved_config,
+    has_placeholder_infrastructure,
+)
 from athena_knowledge_mcp.core.exceptions import InvalidConfigurationError
 from athena_knowledge_mcp.core.models import (
     AwsSecretMaterial,
@@ -24,6 +27,20 @@ from athena_knowledge_mcp.services.aws_session_service import AwsSessionService
 from athena_knowledge_mcp.utils.validators import validate_configuration
 
 
+def _has_infra_overrides(configuration: ServerConfiguration) -> bool:
+    """Retorna True se o usuario definiu ao menos um override de infraestrutura."""
+    return any([
+        configuration.authentication_type,
+        configuration.aws_region,
+        configuration.athena_workgroup,
+        configuration.athena_catalog,
+        configuration.query_results_s3_bucket,
+        configuration.query_results_s3_prefix,
+        configuration.catalog_bucket,
+        configuration.catalog_prefix,
+    ])
+
+
 @dataclass(slots=True)
 class OnboardingService:
     config_repository: LocalConfigRepository
@@ -35,17 +52,32 @@ class OnboardingService:
             return ConfigurationStatus(
                 is_configured=False,
                 next_step=(
-                    "Pergunte apenas o nome do perfil AWS configurado "
-                    "localmente (ex: 'default', 'minha-empresa-prod'). "
-                    "Se o usuario nao tiver perfil, informe que pode "
-                    "usar credenciais padrao do ambiente (IAM role, "
-                    "variavel de ambiente). Use "
-                    "initialize_server_configuration."
+                    "Nenhuma configuracao encontrada. Pergunte ao usuario: "
+                    "(1) tipo de autenticacao AWS desejado (profile, "
+                    "default_credentials, access_key); "
+                    "(2) nome do perfil AWS se aplicavel (ex: 'default', "
+                    "'minha-empresa-prod'); "
+                    "(3) regiao AWS (ex: 'us-east-1'); "
+                    "(4) nome do bucket S3 para resultados do Athena; "
+                    "(5) nome do bucket S3 para catalogo (pode ser o mesmo). "
+                    "Em seguida, chame initialize_server_configuration com "
+                    "os valores informados."
                 ),
+            )
+        next_step: str | None = None
+        if has_placeholder_infrastructure() and not _has_infra_overrides(configuration):
+            next_step = (
+                "Atencao: os defaults de infraestrutura corporativa ainda "
+                "sao valores de exemplo. Pergunte ao usuario o bucket S3 "
+                "para resultados do Athena e o bucket para o catalogo "
+                "(podem ser o mesmo), alem da regiao AWS se diferente de "
+                "us-east-1. Em seguida, chame update_server_configuration "
+                "com esses valores."
             )
         return ConfigurationStatus(
             is_configured=True,
             last_updated_at=configuration.last_updated_at,
+            next_step=next_step,
         )
 
     def get_resolved_configuration(self) -> ResolvedConfig | None:

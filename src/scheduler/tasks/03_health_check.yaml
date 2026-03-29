@@ -1,0 +1,20 @@
+# ─────────────────────────────────────────────────────────────
+# Exemplo: queries de monitoramento/saúde
+# ─────────────────────────────────────────────────────────────
+id: health_check_queries
+name: "Queries de saúde — verificar dados recentes"
+tags: [daily, monitoring]
+stop_on_failure: false
+
+steps:
+  - tool: execute_athena_query
+    arguments:
+      query: "SELECT count(*) AS total_hoje FROM meu_database.transacoes WHERE dt = date_format(current_date, '%Y-%m-%d')"
+      database: "meu_database"
+      wait_for_completion: true
+
+  - tool: execute_athena_query
+    arguments:
+      query: "SELECT max(dt) AS ultimo_dado FROM meu_database.transacoes"
+      database: "meu_database"
+      wait_for_completion: true

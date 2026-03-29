@@ -1,0 +1,26 @@
+# ─────────────────────────────────────────────────────────────
+# Exemplo: sync de tabelas Athena para o catálogo
+# ─────────────────────────────────────────────────────────────
+id: sync_database_tables
+name: "Sincronizar tabelas do Athena para o catálogo local"
+tags: [weekly, catalog, sync]
+stop_on_failure: true
+
+steps:
+  # 1. SSO login (vai abrir o browser uma vez)
+  - tool: aws_sso_login
+    arguments:
+      profile: "meu-profile-sso"
+      timeout_seconds: 180
+
+  # 2. Validar identidade
+  - tool: aws_sts_get_caller_identity
+    arguments:
+      profile: "meu-profile-sso"
+
+  # 3. Sync das tabelas do database principal
+  - tool: sync_athena_database_to_catalog
+    arguments:
+      database_name: "meu_database"
+      max_tables: 50
+      overwrite_existing: false

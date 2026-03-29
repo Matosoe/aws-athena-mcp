@@ -1,0 +1,33 @@
+# ─────────────────────────────────────────────────────────────
+# Exemplo: refresh diário do catálogo + preview de query fixa
+# ─────────────────────────────────────────────────────────────
+id: daily_catalog_refresh
+name: "Refresh diário do catálogo e query de conferência"
+tags: [daily, catalog]
+stop_on_failure: false
+
+steps:
+  # 1. Verificar se o servidor está configurado
+  - tool: get_server_configuration_status
+    arguments: {}
+
+  # 2. Recarregar o índice do catálogo do S3
+  - tool: refresh_catalog_index
+    arguments: {}
+
+  # 3. Listar databases no catálogo local
+  - tool: list_catalog_databases
+    arguments: {}
+
+  # 4. Executar uma query de conferência diária
+  - tool: execute_athena_query
+    arguments:
+      query: "SELECT current_date AS dia, count(*) AS total FROM meu_database.minha_tabela WHERE dt = date_format(current_date, '%Y-%m-%d')"
+      database: "meu_database"
+      wait_for_completion: true
+      max_wait_seconds: 120
+
+  # 5. Buscar preview do resultado (referência ao step anterior)
+  - tool: fetch_query_result_preview
+    arguments:
+      query_execution_id: "$ref:step_3.query_execution_id"

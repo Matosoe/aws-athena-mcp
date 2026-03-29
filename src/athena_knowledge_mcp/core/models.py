@@ -36,11 +36,23 @@ class RuntimePaths(BaseModel):
 class ServerConfiguration(BaseModel):
     """Preferencias do usuario persistidas localmente.
 
-    Apenas os campos que variam por usuario e por sessao sao armazenados
-    aqui. Os campos de infraestrutura (bucket, workgroup, regiao etc.) sao
-    definidos em company_defaults.py.
+    Campos de infraestrutura sao opcionais: quando presentes, sobrescrevem
+    os valores de company_defaults.py. Quando ausentes, os defaults
+    corporativos sao usados. Todos os campos sao persistidos em
+    state/runtime_settings.json, que nao e rastreado pelo git.
     """
 
+    # Overrides de infraestrutura — sobrescrevem company_defaults.py
+    authentication_type: AwsAuthenticationType | None = None
+    aws_region: str | None = None
+    athena_workgroup: str | None = None
+    athena_catalog: str | None = None
+    query_results_s3_bucket: str | None = None
+    query_results_s3_prefix: str | None = None
+    catalog_bucket: str | None = None
+    catalog_prefix: str | None = None
+
+    # Preferencias do usuario
     aws_profile: str | None = None
     athena_databases: list[str] = Field(default_factory=list)
     default_database: str | None = None
@@ -238,6 +250,24 @@ class TableSkill(BaseModel):
     summary: str
     business_context: str = ""
     common_use_cases: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class GenericSkill(BaseModel):
+    """Skill independente de tabela.
+
+    Pode estar opcionalmente vinculada a um database/tabela, mas pode
+    representar qualquer conhecimento de negocio, processo ou consulta.
+    """
+
+    skill_id: str
+    title: str
+    content_markdown: str
+    summary: str
+    description: str = ""
+    database_name: str | None = None
+    table_name: str | None = None
     tags: list[str] = Field(default_factory=list)
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

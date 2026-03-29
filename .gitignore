@@ -11,3 +11,5 @@ build/
 *.egg-info/
 state/
 downloads/
+src/scheduler/logs/
+.vscode/tasks.json

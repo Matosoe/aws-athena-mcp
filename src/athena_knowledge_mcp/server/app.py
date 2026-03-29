@@ -12,6 +12,7 @@ from athena_knowledge_mcp.handlers.catalog_handlers import CatalogHandlers
 from athena_knowledge_mcp.handlers.file_handlers import FileHandlers
 from athena_knowledge_mcp.handlers.onboarding_handlers import OnboardingHandlers
 from athena_knowledge_mcp.handlers.routing_handlers import RoutingHandlers
+from athena_knowledge_mcp.handlers.scheduler_handlers import SchedulerHandlers
 from athena_knowledge_mcp.repositories.local_config_repository import LocalConfigRepository
 from athena_knowledge_mcp.repositories.query_history_repository import QueryHistoryRepository
 from athena_knowledge_mcp.repositories.s3_catalog_repository import S3CatalogRepository
@@ -28,6 +29,7 @@ from athena_knowledge_mcp.services.request_routing_service import RequestRouting
 from athena_knowledge_mcp.services.result_materialization_service import (
     ResultMaterializationService,
 )
+from athena_knowledge_mcp.services.generic_skill_service import GenericSkillService
 from athena_knowledge_mcp.services.s3_catalog_service import S3CatalogService
 from athena_knowledge_mcp.services.skill_catalog_service import SkillCatalogService
 from athena_knowledge_mcp.services.table_skill_service import TableSkillService
@@ -111,6 +113,26 @@ def build_app() -> FastMCP:
         )
         return SkillCatalogService(repository)
 
+    def create_generic_skill_service() -> GenericSkillService:
+        server_config = config_repository.load_configuration()
+        resolved = build_resolved_config(server_config)
+        secrets = config_repository.load_secrets()
+        local_root: Any | None = config.runtime_paths.state_dir / "skills"
+        s3_client: Any | None = None
+        if resolved is not None:
+            try:
+                s3_client = aws_session_service.build_client("s3", resolved, secrets)
+                local_root = None
+            except Exception:
+                local_root = config.runtime_paths.state_dir / "skills"
+        skill_repo = S3SkillRepository(
+            bucket=resolved.catalog_bucket if resolved else "local-catalog",
+            prefix=resolved.catalog_prefix if resolved else "",
+            s3_client=s3_client,
+            local_root=local_root,
+        )
+        return GenericSkillService(skill_repo, create_skill_catalog_service())
+
     def create_request_routing_service() -> RequestRoutingService:
         return RequestRoutingService(
             table_catalog_service=create_catalog_service(),
@@ -151,10 +173,16 @@ def build_app() -> FastMCP:
         onboarding_service,
         create_catalog_service,
         create_skill_catalog_service,
+        create_generic_skill_service,
     )
-    file_handlers = FileHandlers(onboarding_service, create_table_skill_service)
+    file_handlers = FileHandlers(
+        onboarding_service,
+        create_table_skill_service,
+        create_generic_skill_service,
+    )
     routing_handlers = RoutingHandlers(onboarding_service, create_request_routing_service)
     aws_cli_handlers = AwsCliHandlers(AwsCliService())
+    scheduler_handlers = SchedulerHandlers(create_skill_catalog_service)
     athena_handlers = AthenaHandlers(
         onboarding_service,
         create_athena_service,
@@ -171,23 +199,45 @@ def build_app() -> FastMCP:
     @mcp.tool(
         name="initialize_server_configuration",
         description=(
-            "Save the initial user configuration. The only required input is "
-            "the AWS profile name. All infrastructure settings (bucket, "
-            "workgroup, region) are already fixed for this environment."
+            "Save the initial server configuration to a local file "
+            "(state/runtime_settings.json, not tracked by git). "
+            "Accepts both user settings (aws_profile) and infrastructure "
+            "overrides (aws_region, query_results_s3_bucket, "
+            "catalog_bucket, authentication_type, athena_workgroup, "
+            "athena_catalog, query_results_s3_prefix, catalog_prefix). "
+            "If the file already exists, its values are reused as-is. "
+            "Infrastructure overrides replace the compiled-in company "
+            "defaults only when explicitly provided."
         ),
     )
     def initialize_server_configuration(
         aws_profile: str | None = None,
+        authentication_type: str | None = None,
+        aws_region: str | None = None,
+        athena_workgroup: str | None = None,
+        athena_catalog: str | None = None,
+        query_results_s3_bucket: str | None = None,
+        query_results_s3_prefix: str | None = None,
+        catalog_bucket: str | None = None,
+        catalog_prefix: str | None = None,
         skip_aws_validation: bool = False,
     ) -> dict[str, object]:
-        """Save the initial user configuration.
+        """Save initial configuration to state/runtime_settings.json.
 
-        Ask only for the AWS profile name (or confirm default credentials).
-        Infrastructure settings are set by the platform team in
-        company_defaults.py and do not need to be provided by the user.
+        All parameters are optional. Provided values are persisted to the
+        local state file (gitignored). On the next call the file is read
+        automatically and these questions are not asked again.
         """
         return onboarding_handlers.initialize_server_configuration(
             aws_profile=aws_profile,
+            authentication_type=authentication_type,
+            aws_region=aws_region,
+            athena_workgroup=athena_workgroup,
+            athena_catalog=athena_catalog,
+            query_results_s3_bucket=query_results_s3_bucket,
+            query_results_s3_prefix=query_results_s3_prefix,
+            catalog_bucket=catalog_bucket,
+            catalog_prefix=catalog_prefix,
             skip_aws_validation=skip_aws_validation,
         )
 
@@ -207,9 +257,9 @@ def build_app() -> FastMCP:
     @mcp.tool(
         name="list_accessible_s3_buckets",
         description=(
-            "Diagnostic tool: list S3 buckets accessible with the current "
-            "AWS credentials. Not part of the onboarding flow — the bucket "
-            "is already defined in company_defaults.py."
+            "List S3 buckets accessible with the current AWS credentials. "
+            "Use this to discover the correct bucket name before calling "
+            "initialize_server_configuration or update_server_configuration."
         ),
     )
     def list_accessible_s3_buckets() -> dict[str, object]:
@@ -219,25 +269,47 @@ def build_app() -> FastMCP:
     @mcp.tool(
         name="update_server_configuration",
         description=(
-            "Update user-facing configuration fields: aws_profile, "
-            "default_database, athena_databases, inline_result_max_bytes, "
-            "inline_result_max_rows."
+            "Update fields in the local configuration file "
+            "(state/runtime_settings.json, not tracked by git). "
+            "Accepts both user settings (aws_profile, default_database, "
+            "athena_databases, inline_result_max_bytes, "
+            "inline_result_max_rows) and infrastructure overrides "
+            "(authentication_type, aws_region, athena_workgroup, "
+            "athena_catalog, query_results_s3_bucket, "
+            "query_results_s3_prefix, catalog_bucket, catalog_prefix). "
+            "Only supplied parameters are updated; others are preserved."
         ),
     )
     def update_server_configuration(
         aws_profile: str | None = None,
+        authentication_type: str | None = None,
+        aws_region: str | None = None,
+        athena_workgroup: str | None = None,
+        athena_catalog: str | None = None,
+        query_results_s3_bucket: str | None = None,
+        query_results_s3_prefix: str | None = None,
+        catalog_bucket: str | None = None,
+        catalog_prefix: str | None = None,
         default_database: str | None = None,
         athena_databases: list[str] | None = None,
         inline_result_max_bytes: int | None = None,
         inline_result_max_rows: int | None = None,
         skip_aws_validation: bool = False,
     ) -> dict[str, object]:
-        """Update persisted user configuration fields.
+        """Update persisted configuration fields.
 
-        This avoids recreating the full setup from scratch.
+        Only the supplied parameters are updated; existing values are kept.
         """
         return onboarding_handlers.update_server_configuration(
             aws_profile=aws_profile,
+            authentication_type=authentication_type,
+            aws_region=aws_region,
+            athena_workgroup=athena_workgroup,
+            athena_catalog=athena_catalog,
+            query_results_s3_bucket=query_results_s3_bucket,
+            query_results_s3_prefix=query_results_s3_prefix,
+            catalog_bucket=catalog_bucket,
+            catalog_prefix=catalog_prefix,
             default_database=default_database,
             athena_databases=athena_databases,
             inline_result_max_bytes=inline_result_max_bytes,
@@ -356,6 +428,79 @@ def build_app() -> FastMCP:
     def refresh_catalog_index() -> dict[str, int]:
         """Reload the local catalog index from persisted storage."""
         return catalog_handlers.refresh_catalog_index()
+
+    @mcp.tool(
+        name="refresh_skill_index",
+        description=(
+            "Rebuild the skill index by scanning all skill files stored in S3. "
+            "Reads every Markdown file under the skills/ namespace, auto-extracts "
+            "the title (first H1 heading) and summary (first paragraph), and "
+            "overwrites the persisted skill_catalog/skill_index.jsonl in S3. "
+            "Use this after uploading or modifying skill files directly in S3, or "
+            "after importing new table skills."
+            + storage_onboarding_note
+        ),
+    )
+    def refresh_skill_index() -> dict[str, object]:
+        """Scan all skill files in S3 and rebuild the independent skill index.
+
+        Returns the number of skills indexed and any errors encountered.
+        """
+        return catalog_handlers.refresh_skill_index()
+
+    @mcp.tool(
+        name="get_skill",
+        description=(
+            "Load the full Markdown content of any skill by its skill_id. "
+            "For table-bound skills the skill_id is 'database.table'; "
+            "for standalone skills it is the free-form identifier used when "
+            "the skill was created."
+        ),
+    )
+    def get_skill(skill_id: str) -> dict[str, str]:
+        """Return the Markdown content of a skill by its skill_id."""
+        return file_handlers.get_skill(skill_id)
+
+    @mcp.tool(
+        name="create_or_update_skill",
+        description=(
+            "Create or update a standalone skill that is NOT necessarily "
+            "bound to a single table. Use this for business process skills, "
+            "cross-table query patterns, or any reusable knowledge that spans "
+            "multiple tables or does not belong to a single table. "
+            "The skill_id is a free-form unique identifier. "
+            "Optionally link the skill to a specific database/table. "
+            "The skill index is updated automatically."
+            + storage_onboarding_note
+        ),
+    )
+    def create_or_update_skill(
+        skill_id: str,
+        title: str,
+        content_markdown: str,
+        summary: str,
+        description: str = "",
+        database_name: str | None = None,
+        table_name: str | None = None,
+        tags: list[str] | None = None,
+    ) -> dict[str, object]:
+        """Create or replace a standalone skill and update the skill index.
+
+        ``skill_id`` is a stable, unique identifier for the skill (e.g.
+        ``"revenue_churn_analysis"`` or ``"mydb.orders"``).
+        ``content_markdown`` is the full skill document.
+        ``summary`` is a short human-readable description used for search.
+        """
+        return file_handlers.create_or_update_skill(
+            skill_id=skill_id,
+            title=title,
+            content_markdown=content_markdown,
+            summary=summary,
+            description=description,
+            database_name=database_name,
+            table_name=table_name,
+            tags=tags,
+        )
 
     @mcp.tool(
         name="list_catalog_databases",
@@ -578,6 +723,61 @@ def build_app() -> FastMCP:
     def list_local_result_files() -> list[str]:
         """List Athena result files materialized to local storage."""
         return athena_handlers.list_local_result_files()
+
+    @mcp.tool(
+        name="schedule_skill_execution",
+        description=(
+            "Schedule a Windows Task to periodically execute a skill from the skill catalog. "
+            "The task runs get_table_skill (or search_skill_catalog for generic skills) "
+            "on the configured schedule. "
+            "frequency: DAILY | WEEKLY | HOURLY | MINUTE. "
+            "time: HH:MM used for DAILY/WEEKLY. "
+            "interval: repetition multiplier used for HOURLY/MINUTE. "
+            "days_of_week: comma-separated days (MON,TUE,...) used for WEEKLY."
+        ),
+    )
+    def schedule_skill_execution(
+        skill_id: str,
+        frequency: str = "DAILY",
+        time: str = "08:00",
+        interval: int = 1,
+        days_of_week: str | None = None,
+    ) -> dict[str, object]:
+        """Create a Windows scheduled task that executes a skill periodically.
+
+        Writes a YAML task definition and a .cmd wrapper to state/scheduled_tasks/,
+        then registers the task in Windows Task Scheduler under \\MCPTaskScheduler.
+        Returns task_name, yaml_path, cmd_path and schedule summary on success.
+        """
+        return scheduler_handlers.schedule_skill_execution(
+            skill_id=skill_id,
+            frequency=frequency,
+            time=time,
+            interval=interval,
+            days_of_week=days_of_week,
+        )
+
+    @mcp.tool(
+        name="unschedule_skill_execution",
+        description=(
+            "Remove a previously scheduled skill execution from Windows Task Scheduler "
+            "and delete the generated YAML and CMD files."
+        ),
+    )
+    def unschedule_skill_execution(skill_id: str) -> dict[str, object]:
+        """Remove a Windows scheduled task created by schedule_skill_execution."""
+        return scheduler_handlers.unschedule_skill_execution(skill_id=skill_id)
+
+    @mcp.tool(
+        name="list_scheduled_skill_tasks",
+        description=(
+            "List all skill execution tasks currently registered under "
+            "\\MCPTaskScheduler in Windows Task Scheduler."
+        ),
+    )
+    def list_scheduled_skill_tasks() -> dict[str, object]:
+        """List skill execution tasks registered in Windows Task Scheduler."""
+        return scheduler_handlers.list_scheduled_skill_tasks()
 
     return mcp
 
